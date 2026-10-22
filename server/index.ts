@@ -109,7 +109,16 @@ if (prod) {
 }
 
 // Localhost only: the server holds the API key, so nobody else on the party Wi-Fi may use it.
-app.listen(PORT, "127.0.0.1", () => console.log(`Magic Mirror ${prod ? "(prod)" : "(dev)"} at http://127.0.0.1:${PORT}`));
+// Express 5 also calls this callback when the start fails. Without the check, the mirror said it was
+// ready while an older mirror still had the port, and the browser showed the older mirror.
+app.listen(PORT, "127.0.0.1", (error?: Error) => {
+  if (error) {
+    console.error(`Magic Mirror could not start on port ${PORT}: ${error.message}`);
+    console.error("Another mirror is probably still running. Stop it (Ctrl+C in its terminal, or end node.exe), then start again.");
+    process.exit(1);
+  }
+  console.log(`Magic Mirror ${prod ? "(prod)" : "(dev)"} at http://127.0.0.1:${PORT}`);
+});
 
 // Keep the offline fallback model loaded. Re-warm in case a request reset Ollama's keep-alive.
 const warm = () =>
