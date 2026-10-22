@@ -1,14 +1,14 @@
 import "./style.css";
 import { utils } from "@ricky0123/vad-web";
 import { createChunker, createConversation } from "./conversation.ts";
-import { EFFECTS, type Effect } from "./face/face.ts";
+import { EFFECTS, MOODS, type Effect, type Mood } from "./face/face.ts";
 import { createMaskFace } from "./face/maskFace.ts";
 import { createListener, type VadConfig } from "./listen.ts";
 import { createOperator } from "./operator.ts";
-import { createSpeaker } from "./speak.ts";
+import { createSpeaker, type VoiceFx } from "./speak.ts";
 import { createState } from "./state.ts";
 
-type Config = { ttsVoice: string; listenMode: string; vad: VadConfig };
+type Config = { ttsVoice: string; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
 const GREETING = "(A new visitor has just stepped up to the mirror. Greet them!)";
@@ -24,7 +24,7 @@ const AUDITION_VOICES = [
   "en_GB-alba-medium",
   "en_US-lessac-medium",
 ];
-const ECHO_TAIL_MS = 250; // let the last sound die away before the mic listens again (half-duplex)
+const ECHO_TAIL_MS = 500; // let the hall echo die away before the mic listens again (half-duplex)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Declared before anything that awaits, so the hotkeys work while the mirror boots.
@@ -37,8 +37,8 @@ const config = (await (await fetch("/api/config")).json()) as Config;
 const face = createMaskFace(document.querySelector("#mirror")!);
 const conversation = createConversation();
 const operator = createOperator({ wake: () => void wake(), reset, nextVoice });
-const speaker = createSpeaker(config.ttsVoice, {
-  onLevel: (level) => face.setMouth(level),
+const speaker = createSpeaker(config.ttsVoice, config.voiceFx, {
+  onLevel: (level, shape) => face.setMouth(level, shape),
   onAudioStart,
   onPiece: (genMs, audioSec) => operator.set("speech", `last piece took ${Math.round(genMs)} ms to make ${audioSec.toFixed(1)} s of audio`),
 });
@@ -105,6 +105,7 @@ async function respond(v: number) {
   let speaking = false;
   const chunker = createChunker((chunk) => {
     for (const name of chunk.effects) if ((EFFECTS as readonly string[]).includes(name)) face.effect(name as Effect);
+    for (const name of chunk.moods) if ((MOODS as readonly string[]).includes(name)) face.setMood(name as Mood);
     if (chunk.alert) raiseAlert();
     if (!chunk.text) return;
     if (!speaking) {

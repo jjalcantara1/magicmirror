@@ -30,6 +30,7 @@ app.use("/ort", express.static(dirname(createRequire(piperEntry).resolve("onnxru
 app.get("/api/config", (_req, res) => {
   res.json({
     ttsVoice: process.env.TTS_VOICE || "en_GB-alan-medium",
+    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.86), echo: Number(process.env.VOICE_ECHO || 0.4) },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),

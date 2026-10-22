@@ -1,14 +1,51 @@
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
 
-// Speaks reply pieces in order with no gaps, and reports the mouth level from the audio that is playing.
+/** pitch: playback rate, below 1 is deeper and slower. echo: 0 = dry, 1 = a big echoing hall. */
+export type VoiceFx = { pitch: number; echo: number };
+
+// A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
+function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
+  const length = Math.floor(ctx.sampleRate * seconds);
+  const gap = Math.floor(ctx.sampleRate * 0.02);
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = gap; i < length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp((-6.9 * i) / length);
+  }
+  return buffer;
+}
+
+// The Queen's mirror booms from deep inside the glass: more bass, softer highs, and an echoing hall.
+// Returns the input node.
+function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
+  const trim = new GainNode(ctx, { gain: 0.75 }); // Piper peaks at full scale; leave room for the bass boost
+  const bass = new BiquadFilterNode(ctx, { type: "lowshelf", frequency: 180, gain: 6 });
+  const soft = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 6500 });
+  const out = new DynamicsCompressorNode(ctx, { threshold: -16, knee: 12, ratio: 4 });
+  trim.connect(bass).connect(soft).connect(out).connect(ctx.destination);
+  if (echo > 0) {
+    const hall = new ConvolverNode(ctx, { buffer: hallImpulse(ctx, 1.6) });
+    soft.connect(hall).connect(new BiquadFilterNode(ctx, { type: "lowpass", frequency: 3500 })).connect(new GainNode(ctx, { gain: echo })).connect(out);
+    const delay = new DelayNode(ctx, { delayTime: 0.17 });
+    const delayTone = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 2500 });
+    soft.connect(delay).connect(delayTone).connect(new GainNode(ctx, { gain: echo * 0.45 })).connect(out);
+    delayTone.connect(new GainNode(ctx, { gain: 0.25 })).connect(delay);
+  }
+  return trim;
+}
+
+// Speaks reply pieces in order with no gaps, and reports the mouth level and shape from the audio that is playing.
 export function createSpeaker(
   initialVoice: string,
-  hooks: { onLevel(level: number): void; onAudioStart(): void; onPiece(genMs: number, audioSec: number): void },
+  fx: VoiceFx,
+  hooks: { onLevel(level: number, shape: number): void; onAudioStart(): void; onPiece(genMs: number, audioSec: number): void },
 ) {
   const audioContext = new AudioContext();
   const analyser = audioContext.createAnalyser();
   analyser.fftSize = 1024;
-  analyser.connect(audioContext.destination);
+  analyser.smoothingTimeConstant = 0.5;
+  // The analyser hears the voice before the echo, so the mouth closes when the words end.
+  analyser.connect(mirrorVoice(audioContext, fx.echo));
   const worker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
   const send = (msg: TtsRequest) => worker.postMessage(msg);
 
@@ -45,10 +82,11 @@ export function createSpeaker(
     buffer.copyToChannel(new Float32Array(samples), 0);
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
+    source.playbackRate.value = fx.pitch;
     source.connect(analyser);
     const at = Math.max(audioContext.currentTime + 0.03, nextStart);
     source.start(at);
-    nextStart = at + buffer.duration;
+    nextStart = at + buffer.duration / fx.pitch;
     sources.add(source);
     source.onended = () => {
       sources.delete(source);
@@ -62,8 +100,8 @@ export function createSpeaker(
     const utterance = new SpeechSynthesisUtterance(text);
     const local = speechSynthesis.getVoices().find((v) => v.localService && v.lang.startsWith("en"));
     if (local) utterance.voice = local;
-    utterance.pitch = 0.8;
-    utterance.rate = 0.92;
+    utterance.pitch = 0.6;
+    utterance.rate = 0.88;
     const gen = generation;
     utterance.onstart = () => {
       browserSpeaking = true;
@@ -96,18 +134,36 @@ export function createSpeaker(
   send({ type: "init", voice });
 
   const frame = new Float32Array(analyser.fftSize);
+  const spectrum = new Float32Array(analyser.frequencyBinCount);
+  const binHz = audioContext.sampleRate / analyser.fftSize;
+  const power = (fromHz: number, toHz: number) => {
+    let sum = 0;
+    for (let i = Math.round(fromHz / binHz); i < Math.round(toHz / binHz); i++) sum += 10 ** (spectrum[i] / 10);
+    return sum;
+  };
+  const decibels = (a: number, b: number) => 10 * Math.log10((a + 1e-12) / (b + 1e-12));
   function mouthLoop() {
     let level = 0;
+    let shape = 0;
     if (engine === "browser") {
       // speechSynthesis gives no audio to measure, so flap the mouth while it talks.
-      level = browserSpeaking ? 0.35 + 0.3 * Math.sin(performance.now() / 70) : 0;
+      const t = performance.now();
+      level = browserSpeaking ? 0.35 + 0.3 * Math.sin(t / 70) : 0;
+      shape = 0.5 * Math.sin(t / 130);
     } else {
       analyser.getFloatTimeDomainData(frame);
       let sum = 0;
       for (const s of frame) sum += s * s;
       level = Math.min(1, Math.sqrt(sum / frame.length) * 5);
+      // Mouth shape from the spectrum (calibrated on test vowels through the mirror voice): "ee", "ih"
+      // and "s" are loud above 1.6 kHz, "oo" and "oh" below 500 Hz, and "ah" and "uh" in between.
+      analyser.getFloatFrequencyData(spectrum);
+      const mid = power(500, 1300);
+      const wide = Math.max(0, Math.min(1, (decibels(power(1600, 8000), mid) + 12) / 16));
+      const round = Math.max(0, Math.min(1, (decibels(power(150, 500), mid) + 1) / 8));
+      shape = wide - round * (1 - wide);
     }
-    hooks.onLevel(level);
+    hooks.onLevel(level, shape);
     requestAnimationFrame(mouthLoop);
   }
   mouthLoop();
