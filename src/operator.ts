@@ -1,0 +1,87 @@
+type Handlers = { wake(): void; reset(): void; nextVoice(): void };
+type Status = {
+  llm: { target: string; requests: number; tokens: number; remainingRequests?: number; coolingDownSec: number; lastError?: string }[];
+  stt: { target: string; requestsToday: number };
+};
+
+// Operator hotkeys and the debug overlay. Transcripts show here only and are wiped per visitor.
+export function createOperator(handlers: Handlers) {
+  const panel = document.querySelector<HTMLPreElement>("#debug")!;
+  const alertDot = document.querySelector<HTMLDivElement>("#alert")!;
+  const fields = new Map<string, string>();
+  let transcript: string[] = [];
+  let status = "";
+  let scheduled = false;
+
+  function render() {
+    scheduled = false;
+    if (panel.hidden) return;
+    const lines = [...fields].map(([key, value]) => `${key.padEnd(8)} ${value}`);
+    panel.textContent = [...lines, "", status, "", ...transcript].join("\n");
+  }
+  const schedule = () => {
+    if (!scheduled) (scheduled = true), requestAnimationFrame(render);
+  };
+
+  async function pollStatus() {
+    try {
+      const s = (await (await fetch("/api/status")).json()) as Status;
+      status = [
+        "free tier today:",
+        ...s.llm.map(
+          (p) =>
+            `  ${p.target.padEnd(28)} ${String(p.requests).padStart(4)} req ${String(p.tokens).padStart(7)} tok` +
+            (p.remainingRequests !== undefined ? `  ${p.remainingRequests} left` : "") +
+            (p.coolingDownSec ? `  COOLDOWN ${p.coolingDownSec}s` : "") +
+            (p.lastError ? `  (${p.lastError.slice(0, 60)})` : ""),
+        ),
+        `  ${s.stt.target.padEnd(28)} ${String(s.stt.requestsToday).padStart(4)} req`,
+      ].join("\n");
+    } catch {
+      status = "server status unavailable";
+    }
+    schedule();
+  }
+  setInterval(() => {
+    if (!panel.hidden) void pollStatus();
+  }, 5000);
+
+  addEventListener("keydown", (e) => {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    switch (e.key.toLowerCase()) {
+      case "g":
+        handlers.wake();
+        break;
+      case "r":
+        alertDot.hidden = true;
+        handlers.reset();
+        break;
+      case "v":
+        handlers.nextVoice();
+        break;
+      case "d":
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) void pollStatus();
+        schedule();
+        break;
+    }
+  });
+
+  return {
+    set(key: string, value: string) {
+      fields.set(key, value);
+      schedule();
+    },
+    transcript(line: string) {
+      transcript = [...transcript, line].slice(-12);
+      schedule();
+    },
+    clearTranscript() {
+      transcript = [];
+      schedule();
+    },
+    alert() {
+      alertDot.hidden = false;
+    },
+  };
+}

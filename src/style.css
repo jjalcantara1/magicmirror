@@ -1,0 +1,59 @@
+/* Pure black, so a two-way mirror sheet looks like plain glass until the face glows through. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #9fe6d5;
+}
+
+#flash {
+  position: fixed;
+  inset: 0;
+  background: #e8fff9;
+  opacity: 0;
+  pointer-events: none;
+}
+#flash.on { animation: flash 0.7s ease-out; }
+@keyframes flash {
+  0%, 30% { opacity: 0.85; }
+  15% { opacity: 0.2; }
+  100% { opacity: 0; }
+}
+
+/* Small corner light for the operator only. */
+#alert {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 12px #ff3b3b;
+}
+#alert[hidden] { display: none; }
+
+#debug {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  max-width: calc(100vw - 48px);
+  background: rgb(0 0 0 / 0.75);
+  border: 1px solid rgb(95 242 208 / 0.3);
+  font: 13px/1.45 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+}
+#debug[hidden] { display: none; }
+
+#boot {
+  position: fixed;
+  bottom: 24px;
+  width: 100%;
+  text-align: center;
+  font: italic 15px Georgia, serif;
+  opacity: 0.5;
+}
