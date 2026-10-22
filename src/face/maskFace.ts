@@ -41,9 +41,10 @@ const opening = (cx: number, up: number, down: number) =>
 const lid = (cx: number, h: number, edge: number) =>
   `${curve(cx, h)} L${cx + EYE_W + 2},${EYE_Y} C${cx + 12},${f(EYE_Y + edge)} ${cx - 12},${f(EYE_Y + edge)} ${cx - EYE_W - 2},${EYE_Y}Z`;
 // Purple ring round the eye, strongest below and at the outer corner. The open eye is cut out of it.
-const socketPath = (cx: number, side: number) => {
+// It rides up with the lower lid, so a smiling eye has a crescent under it, not a pool.
+const socketPath = (cx: number, side: number, lift: number) => {
   const x = cx + side * 6;
-  const y = EYE_Y - 2;
+  const y = EYE_Y - 2 + lift;
   return `M${x - 36},${y} A36,25 0 1,0 ${x + 36},${y} A36,25 0 1,0 ${x - 36},${y}Z`;
 };
 // A thick dark upper lid, thin at the ends, with a flick at the outer corner. The flick shrinks as
@@ -77,12 +78,12 @@ const eye = (cx: number, i: number) => `
       <path class="lash" fill="#1c0f30"/>`;
 
 const GOLD_STOPS = `
-      <stop offset="0" stop-color="#fff2b8"/>
-      <stop offset="0.2" stop-color="#e6b04a"/>
-      <stop offset="0.4" stop-color="#9c6519"/>
-      <stop offset="0.56" stop-color="#f4d272"/>
-      <stop offset="0.78" stop-color="#b57d25"/>
-      <stop offset="1" stop-color="#6a420e"/>`;
+      <stop offset="0" stop-color="#ffeeb0"/>
+      <stop offset="0.2" stop-color="#e3a63e"/>
+      <stop offset="0.4" stop-color="#935a14"/>
+      <stop offset="0.56" stop-color="#f3c862"/>
+      <stop offset="0.78" stop-color="#b07220"/>
+      <stop offset="1" stop-color="#62390b"/>`;
 
 // The crown effect: a gold filigree tiara with gems, sitting on the dipped top of the mask.
 const tiaraSide = (s: number) => `
@@ -121,10 +122,10 @@ const MASK_SVG = `
       <stop offset="1" stop-color="#43357a" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="bm-socket">
-      <stop offset="0.45" stop-color="#5a45b0" stop-opacity="0.92"/>
-      <stop offset="0.7" stop-color="#5a45b0" stop-opacity="0.72"/>
-      <stop offset="0.88" stop-color="#5a45b0" stop-opacity="0.25"/>
-      <stop offset="1" stop-color="#5a45b0" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#4e3d96" stop-opacity="0.97"/>
+      <stop offset="0.72" stop-color="#4e3d96" stop-opacity="0.88"/>
+      <stop offset="0.87" stop-color="#4e3d96" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#4e3d96" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="bm-shade" cx="0" cy="12" r="135" gradientUnits="userSpaceOnUse">
       <stop offset="0.66" stop-color="#3a2a5a" stop-opacity="0"/>
@@ -292,11 +293,11 @@ const FRAME_SVG = `
     <linearGradient id="bf-gold" x1="0" y1="0" x2="1" y2="1">${GOLD_STOPS}
     </linearGradient>
     <linearGradient id="bf-gold-b" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop offset="0" stop-color="#fff6cc"/>
-      <stop offset="0.3" stop-color="#f6cf68"/>
-      <stop offset="0.5" stop-color="#c58d2c"/>
-      <stop offset="0.7" stop-color="#ffe08a"/>
-      <stop offset="1" stop-color="#a06a1c"/>
+      <stop offset="0" stop-color="#fff2c4"/>
+      <stop offset="0.3" stop-color="#f2c45c"/>
+      <stop offset="0.5" stop-color="#c08328"/>
+      <stop offset="0.7" stop-color="#fbd77e"/>
+      <stop offset="1" stop-color="#9a6018"/>
     </linearGradient>
     <g id="bf-half">
       ${scrollPaths("#3d2304", 6.5)}
@@ -366,14 +367,14 @@ const pose = (p: Partial<Pose>): Pose => ({ ...CALM, ...p });
 const STATE_POSE: Record<FaceState, Pose> = {
   asleep: pose({ browL: -0.1, browR: -0.1, lidL: 1, lidR: 1, lowL: 0, lowR: 0, smile: 0.2 }),
   waking: pose({ browL: 0.9, browR: 0.9, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0.2, jaw: 0.3, shape: -0.6 }),
-  listening: pose({ browL: 0.35, browR: 0.3, lidL: 0.08, lidR: 0.08, lowL: 0.2, lowR: 0.2, smile: 0.58, tilt: 3 }),
+  listening: pose({ browL: 0.35, browR: 0.3, lidL: 0.08, lidR: 0.08, lowL: 0.2, lowR: 0.2, smile: 0.72, tilt: 3 }),
   thinking: pose({ browL: 0.8, browR: -0.1, slantL: 0, slantR: -0.3, lidL: 0.05, lidR: 0.12, smile: 0.05, smirk: -0.4, shape: -0.5, lookX: -0.7, lookY: -0.8, tilt: -4 }),
   speaking: pose({ browL: 0.3, browR: 0.3, lowL: 0.18, lowR: 0.18, smile: 0.5 }),
 };
 
 const MOOD_POSE: Record<Mood, Pose> = {
   happy: pose({ browL: 0.45, browR: 0.45, slantL: 0.15, slantR: 0.15, lidL: 0, lidR: 0, lowL: 0.45, lowR: 0.45, smile: 0.9, blush: 0.45 }),
-  laugh: pose({ browL: 0.6, browR: 0.6, slantL: 0.3, slantR: 0.3, lidL: 0.3, lidR: 0.3, lowL: 1, lowR: 1, smile: 1, jaw: 0.45, shape: 0.3, blush: 0.5 }),
+  laugh: pose({ browL: 0.6, browR: 0.6, slantL: 0.3, slantR: 0.3, lidL: 0.3, lidR: 0.3, lowL: 1, lowR: 1, smile: 1, jaw: 0.3, shape: 0.3, blush: 0.5 }),
   surprised: pose({ browL: 1, browR: 1, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0, jaw: 0.75, shape: -0.8 }),
   sly: pose({ browL: 0.95, browR: -0.35, slantL: -0.2, slantR: -0.6, lidL: 0.45, lidR: 0.5, lowL: 0.2, lowR: 0.2, smile: 0.7, smirk: 0.8, lookX: 0.6, tilt: 4 }),
   wink: pose({ browL: 0.5, browR: 0.2, slantL: 0.15, slantR: 0, lidL: 0.05, lidR: 0.05, lowL: 0.4, lowR: 0.4, smile: 0.85, smirk: 0.4, blush: 0.35, tilt: 3 }),
@@ -482,9 +483,9 @@ function swirlSprite(rgb: string, edge: string, size = 160): HTMLCanvasElement {
   g.lineWidth = 26 * k;
   path();
   g.stroke();
-  g.filter = `blur(${2.5 * k}px)`;
-  g.strokeStyle = `rgb(${edge} / 0.7)`;
-  g.lineWidth = 5 * k;
+  g.filter = `blur(${3 * k}px)`;
+  g.strokeStyle = `rgb(${edge} / 0.6)`;
+  g.lineWidth = 6 * k;
   path();
   g.stroke();
   return c;
@@ -517,6 +518,8 @@ function newTwinkle(): Twinkle {
 
 export function createMaskFace(root: HTMLElement): Face {
   root.classList.add("mirror");
+  // Set before the first layout, so the mask starts faded instead of fading out from full.
+  root.dataset.state = "asleep";
   root.innerHTML = `<div class="stage">${GLASS_SVG}<canvas class="smoke"></canvas>${MASK_SVG}${FRAME_SVG}</div>`;
   const canvas = root.querySelector<HTMLCanvasElement>(".smoke")!;
   const ctx = canvas.getContext("2d")!;
@@ -673,8 +676,8 @@ export function createMaskFace(root: HTMLElement): Face {
       // The violet ring fades as the eye closes, so a closed or smiling eye sits on lit skin. Its hole
       // is a little smaller than the open eye, so the ring edge always lies on dark.
       const m = (up + down) / 2;
-      sockets[i].setAttribute("d", `${socketPath(cx, side)} ${opening(cx, Math.min(up + 1.2, m), Math.max(down - 1.2, m))}`);
-      sockets[i].setAttribute("opacity", f(0.22 + 0.78 * open));
+      sockets[i].setAttribute("d", `${socketPath(cx, side, (Math.min(down, LID_BOTTOM) - LID_BOTTOM) * 0.35)} ${opening(cx, Math.min(up + 1.2, m), Math.max(down - 1.2, m))}`);
+      sockets[i].setAttribute("opacity", f(Math.min(1, 0.15 + 1.6 * open)));
       lashes[i].setAttribute("d", lashPath(cx, side, up, open));
       lidLines[i].setAttribute("d", curve(cx, down));
       creases[i].setAttribute("d", curve(cx, up - 7));
@@ -689,7 +692,7 @@ export function createMaskFace(root: HTMLElement): Face {
     const open = clamp(rig.jaw + speech * (1 - rig.jaw * 0.6), 0, 1);
     const shape = lerp(rig.shape, clamp(rig.shape * 0.4 + speechShape), Math.min(1, speech * 4));
     const round = Math.max(0, -shape);
-    const w = 40 + Math.max(0, shape) * 6 - round * 14 + Math.max(0, rig.smile) * 6;
+    const w = 40 + Math.max(0, shape) * 6 - round * 16 + Math.max(0, rig.smile) * 6;
     const dx = rig.smirk * 4;
     const lx = dx - w;
     const rx = dx + w;
@@ -699,9 +702,9 @@ export function createMaskFace(root: HTMLElement): Face {
     const c1 = f(dx - w * kx);
     const c2 = f(dx + w * kx);
     const mid = MOUTH_Y + rig.smile * 3; // the middle stays while the corners move
-    const grin = Math.max(0, rig.smile - 0.45) * 30 * (1 - round);
+    const grin = Math.max(0, rig.smile - 0.4) * 38 * (1 - round);
     const upY = mid - open * (3 + round * 7);
-    const loY = mid + grin + open * 38;
+    const loY = mid + Math.min(48, grin + open * (38 + round * 8)); // the chin sets the limit
     const L = `${f(lx)},${f(ly)}`;
     const R = `${f(rx)},${f(ry)}`;
     const upperInner = `C${c1},${f(upY)} ${c2},${f(upY)} ${R}`;
@@ -715,7 +718,7 @@ export function createMaskFace(root: HTMLElement): Face {
     lipLow.setAttribute("d", `M${L} C${c1},${f(loY + 11)} ${c2},${f(loY + 11)} ${R} ${lowerInnerBack}Z`);
     cavity.setAttribute("d", hole);
     cavityClip.setAttribute("d", hole);
-    const tooth = 11 - round * 5;
+    const tooth = 11 - round * 5 + grin * 0.2;
     teeth.setAttribute("d", `M${L} ${upperInner} L${f(rx)},${f(ry + tooth * 0.5)} C${c2},${f(upY + tooth)} ${c1},${f(upY + tooth)} ${f(lx)},${f(ly + tooth * 0.5)}Z`);
     tongue.setAttribute("cx", f(dx));
     // The tongue hides below the lip until the mouth opens.
@@ -824,9 +827,7 @@ export function createMaskFace(root: HTMLElement): Face {
     animateFace(now / 1000, dt);
     drawSmoke(now, dt);
   }
-  // The first paint already has brows, lids and lips, and the asleep fade.
-  root.dataset.state = state;
-  animateFace(performance.now() / 1000, 0);
+  animateFace(performance.now() / 1000, 0); // so the first paint already has brows, lids and lips
   requestAnimationFrame(frame);
 
   return {
