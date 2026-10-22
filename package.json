@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env server/index.ts",
     "build": "vite build",
+    "prestart": "vite build",
     "start": "node --env-file-if-exists=.env server/index.ts --prod",
     "bench": "node --env-file-if-exists=.env scripts/bench.ts",
     "typecheck": "tsc --noEmit"
