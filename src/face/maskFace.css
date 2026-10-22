@@ -3,52 +3,68 @@
   inset: 0;
   display: grid;
   place-items: center;
+  background: #000;
 }
 
-.mirror .smoke {
+/* Glass, smoke, mask and frame share one box and one viewBox, so they line up. */
+.mirror .stage {
+  position: relative;
+  height: 98vmin;
+  aspect-ratio: 300 / 410;
+}
+
+.mirror .stage > * {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-/* A soft static glow behind the mask; cheaper than a CSS filter on the SVG. */
-.mirror .halo {
-  position: absolute;
-  width: 70vmin;
-  height: 80vmin;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(150 100 230 / 0.2), transparent);
+.mirror .glass,
+.mirror .frame,
+.mirror .halo,
+.mirror .rim-glow,
+.mirror .jewel {
   transition: opacity 1.4s ease;
 }
 
+/* Only the mask floats; the frame stays put like a real mirror. */
 .mirror .mask {
-  position: relative;
-  height: 82vmin;
   transition: opacity 1.4s ease;
   animation: mm-float 7s ease-in-out infinite;
 }
 
 .mirror .crown {
   transform-box: fill-box;
-  transform-origin: center;
+  transform-origin: center bottom;
+  opacity: 0;
+  transform: translateY(14px) scale(0.85);
+  transition: opacity 0.8s ease, transform 0.8s ease;
 }
 
 /* maskFace.ts moves the head, eyes, brows and mouth. CSS only fades things in and out. */
-.mirror .iris { opacity: 0.7; transition: opacity 0.4s ease; }
-.mirror .crown { opacity: 0; transform: translateY(14px) scale(0.9); transition: opacity 0.8s ease, transform 0.8s ease; }
+.mirror .iris { opacity: 0.8; transition: opacity 0.4s ease; }
+.mirror .halo { opacity: 0.75; }
+.mirror .rim-glow { opacity: 0.6; }
 
 /* asleep: a faint shape in the dark glass, eyes closed */
 .mirror[data-state="asleep"] .mask { opacity: 0.1; }
 .mirror[data-state="asleep"] .halo { opacity: 0; }
+.mirror[data-state="asleep"] .rim-glow { opacity: 0; }
+.mirror[data-state="asleep"] .frame { opacity: 0.3; }
+.mirror[data-state="asleep"] .glass { opacity: 0.35; }
 
 .mirror[data-state="listening"] .iris,
 .mirror[data-state="speaking"] .iris { opacity: 1; }
 .mirror[data-state="thinking"] .iris { animation: mm-pulse 0.9s ease-in-out infinite alternate; }
 
+/* The tiara has its own gem, so the small forehead gem steps aside. */
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
-.mirror.fx-glow .halo { background: radial-gradient(closest-side, rgb(200 255 120 / 0.4), transparent); }
+.mirror.fx-crown .jewel { opacity: 0; }
+.mirror.fx-glow .halo,
+.mirror.fx-glow .rim-glow,
 .mirror.fx-glow .iris { opacity: 1; }
+.mirror.fx-glow .halo { fill: url(#bg-halo-hot); }
 
 @keyframes mm-float {
   50% { transform: translateY(-1.2vmin); }
