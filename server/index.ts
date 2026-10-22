@@ -1,11 +1,14 @@
 import express from "express";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribeGroq } from "./providers/stt.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
+// The project folder. Paths start here, not at the working folder, so the server finds the page
+// however it is started (npm script, VS Code debugger, or another folder).
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const STT_MODEL = process.env.STT_MODEL || "whisper-large-v3-turbo";
 const prod = process.argv.includes("--prod");
 
@@ -98,10 +101,10 @@ app.post("/api/bench-result", express.json({ limit: "1mb" }), (req, res) => {
 });
 
 if (prod) {
-  app.use(express.static("dist"));
+  app.use(express.static(join(ROOT, "dist")));
 } else {
   const { createServer } = await import("vite");
-  const vite = await createServer({ server: { middlewareMode: true }, appType: "mpa" });
+  const vite = await createServer({ root: ROOT, server: { middlewareMode: true }, appType: "mpa" });
   app.use(vite.middlewares);
 }
 
