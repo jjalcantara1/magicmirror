@@ -61,14 +61,33 @@ function lashPath(cx: number, side: number, up: number, open: number): string {
   );
 }
 
-// Dark eyes with a soft spark that looks around.
+// A star with n points, outer radius r1 and inner radius r2, centred on 0,0.
+function starPath(n: number, r1: number, r2: number): string {
+  let d = "";
+  for (let i = 0; i < n * 2; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / n;
+    const r = i % 2 ? r2 : r1;
+    d += `${i ? "L" : "M"}${f(r * Math.cos(a))},${f(r * Math.sin(a))}`;
+  }
+  return `${d}Z`;
+}
+const HEART = "M0,7.5 C-3,5 -10,1 -10,-3.5 C-10,-7 -7,-9 -4.5,-9 C-2.2,-9 -0.6,-7.6 0,-5.8 C0.6,-7.6 2.2,-9 4.5,-9 C7,-9 10,-7 10,-3.5 C10,1 3,5 0,7.5Z";
+
+// Dark eyes with a soft spark that looks around. Excited eyes get stars, loving eyes get hearts.
 const eye = (cx: number, i: number) => `
       <g clip-path="url(#bm-eye-${i})">
         <rect x="${cx - 26}" y="${EYE_Y - 26}" width="52" height="40" fill="url(#bm-hole)"/>
         <g class="iris">
           <circle r="8" fill="url(#bm-iris)"/>
-          <path d="M3,-8 l1,2.8 2.8,1 -2.8,1 -1,2.8 -1,-2.8 -2.8,-1 2.8,-1Z" fill="#fff"/>
-          <circle cx="-3.6" cy="3.4" r="1.3" fill="#fff"/>
+          <g class="g-spark">
+            <path d="M3,-8 l1,2.8 2.8,1 -2.8,1 -1,2.8 -1,-2.8 -2.8,-1 2.8,-1Z" fill="#fff"/>
+            <circle cx="-3.6" cy="3.4" r="1.3" fill="#fff"/>
+          </g>
+          <path class="g-star" d="${starPath(5, 13, 5.4)}" fill="#fff4b8" stroke="#ffc94a" stroke-width="1" stroke-linejoin="round"/>
+          <g class="g-heart">
+            <path d="${HEART}" fill="#ff6fa8" stroke="#ffd0e2" stroke-width="0.8"/>
+            <ellipse cx="-4.6" cy="-4.6" rx="2" ry="1.3" fill="#fff" opacity="0.9"/>
+          </g>
         </g>
       </g>
       <path class="lid-up" fill="url(#bm-skin)"/>
@@ -192,6 +211,7 @@ const MASK_SVG = `
     <clipPath id="bm-eye-1"><path d="${opening(EYE_X[1], LID_TOP, LID_BOTTOM)}"/></clipPath>
     <clipPath id="bm-mouth"><path class="cavity-clip"/></clipPath>
   </defs>
+  <g class="rig">
   <ellipse cx="0" cy="6" rx="102" ry="132" fill="url(#bm-aura)"/>
   <g transform="${MASK_PLACE}">
     <g class="head">
@@ -241,7 +261,12 @@ const MASK_SVG = `
         <path class="teeth" fill="url(#bm-teeth)"/>
       </g>
       <g class="crown">${TIARA}</g>
+      <g class="twink" opacity="0">
+        <circle r="10" fill="url(#bm-light)"/>
+        <path d="M0,-13 L2.2,-2.2 13,0 2.2,2.2 0,13 -2.2,2.2 -13,0 -2.2,-2.2Z" fill="#fffbe2"/>
+      </g>
     </g>
+  </g>
   </g>
 </svg>`;
 
@@ -263,32 +288,89 @@ const BACKLIGHT_SVG = `
   <ellipse class="halo" cx="0" cy="4" rx="112" ry="148" fill="url(#bg-halo)"/>
 </svg>`;
 
+const TAU = Math.PI * 2;
+const FRAME_MS = 33; // ~30 fps: the laptop also runs the voice
+
+const clamp = (x: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, x));
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+// 0 -> 1 -> 0 between a and b.
+const bump = (u: number, a: number, b: number) => (u <= a || u >= b ? 0 : 0.5 - 0.5 * Math.cos(((u - a) / (b - a)) * TAU));
+// Rises over 0..a, holds, falls over b..1.
+const env = (u: number, a: number, b: number) => Math.min(smooth(u / a), smooth((1 - u) / (1 - b)));
+// An eased curve through flat [u, value, u, value, ...] keys.
+function keys(u: number, k: readonly number[]): number {
+  if (u <= k[0]) return k[1];
+  for (let i = 2; i < k.length; i += 2) {
+    if (u < k[i]) return lerp(k[i - 1], k[i + 1], smooth((u - k[i - 2]) / (k[i] - k[i - 2])));
+  }
+  return k[k.length - 1];
+}
+// Like clamp, but eases into the limits, so stacked motions round off instead of sticking flat.
+function soft(x: number, lo: number, hi: number): number {
+  const m = (hi - lo) * 0.15;
+  if (x > hi - m) return hi - m + m * Math.tanh((x - hi + m) / m);
+  if (x < lo + m) return lo + m - m * Math.tanh((lo + m - x) / m);
+  return x;
+}
+// A blink: quick to close, slower to open.
+function blinkCurve(s: number, dur = 0.18): number {
+  const p = s / dur;
+  return p <= 0 || p >= 1 ? 0 : p < 0.4 ? p / 0.4 : 1 - (p - 0.4) / 0.6;
+}
+
 // Each pose is a set of targets for the face rig. L and R are as the viewer sees them.
-const POSE_KEYS = ["browL", "browR", "slantL", "slantR", "lidL", "lidR", "lowL", "lowR", "smile", "smirk", "jaw", "shape", "blush", "lookX", "lookY", "tilt"] as const;
-type Pose = Record<(typeof POSE_KEYS)[number], number>;
+const POSE_KEYS = ["browL", "browR", "slantL", "slantR", "lidL", "lidR", "lowL", "lowR", "smile", "smirk", "jaw", "shape", "blush", "lookX", "lookY", "tilt", "hx", "hy", "scale", "squash"] as const;
+type Key = (typeof POSE_KEYS)[number];
+type Pose = Record<Key, number>;
 // brow: -1 low .. 1 high. slant: + inner ends up (kind), - inner ends down (cheeky). lid: upper lid
 // closed 0..1. low: lower lid up 0..1 (smiling eyes). smile, smirk, shape: -1..1. jaw: open with no
-// sound 0..1. look: -1..1. tilt: degrees.
-const CALM: Pose = { browL: 0.2, browR: 0.2, slantL: 0.1, slantR: 0.1, lidL: 0.15, lidR: 0.15, lowL: 0.12, lowR: 0.12, smile: 0.35, smirk: 0, jaw: 0, shape: 0, blush: 0, lookX: 0, lookY: 0, tilt: 0 };
+// sound 0..1. look: -1..1. tilt: degrees. hx, hy: head shift in viewBox units. scale: head size - 1.
+// squash: + wider and shorter, - taller and thinner.
+const CALM: Pose = { browL: 0.2, browR: 0.2, slantL: 0.1, slantR: 0.1, lidL: 0.15, lidR: 0.15, lowL: 0.12, lowR: 0.12, smile: 0.35, smirk: 0, jaw: 0, shape: 0, blush: 0, lookX: 0, lookY: 0, tilt: 0, hx: 0, hy: 0, scale: 0, squash: 0 };
 const pose = (p: Partial<Pose>): Pose => ({ ...CALM, ...p });
+const IDX = Object.fromEntries(POSE_KEYS.map((k, i) => [k, i])) as Record<Key, number>;
+
+// Every key follows its target on a spring: [frequency in Hz, damping]. Damping below 1 overshoots
+// a little, so a new expression pops and settles like a cartoon.
+const SPRINGS: Record<Key, readonly [number, number]> = {
+  browL: [3.2, 0.42], browR: [3.2, 0.42], slantL: [3, 0.5], slantR: [3, 0.5],
+  lidL: [6, 0.8], lidR: [6, 0.8], lowL: [4.5, 0.65], lowR: [4.5, 0.65],
+  smile: [3, 0.5], smirk: [2.6, 0.55], jaw: [5, 0.5], shape: [4, 0.6], blush: [1.2, 1],
+  lookX: [5.5, 0.72], lookY: [5.5, 0.72], tilt: [1.8, 0.45],
+  hx: [2, 0.5], hy: [2.4, 0.38], scale: [2.6, 0.4], squash: [4, 0.3],
+};
+const STIFF = POSE_KEYS.map((k) => (TAU * SPRINGS[k][0]) ** 2);
+const DAMP = POSE_KEYS.map((k) => 2 * SPRINGS[k][1] * TAU * SPRINGS[k][0]);
+// What can be drawn. Lids, lips and squash stop hard at their limits; the rest ease in (SOFT).
+const LIMIT: Record<Key, readonly [number, number]> = {
+  browL: [-1, 1.5], browR: [-1, 1.5], slantL: [-1, 1], slantR: [-1, 1], lidL: [0, 1], lidR: [0, 1], lowL: [0, 1], lowR: [0, 1],
+  smile: [-1, 1.1], smirk: [-1, 1], jaw: [0, 1], shape: [-1, 1], blush: [0, 1], lookX: [-1.1, 1.1], lookY: [-1.1, 1.1],
+  tilt: [-9, 9], hx: [-8, 8], hy: [-12, 14], scale: [-0.2, 0.15], squash: [-0.08, 0.08],
+};
+const SOFT = POSE_KEYS.map((k) => /^(brow|look|tilt|hx|hy|scale)/.test(k));
 
 // Grins keep their teeth without a jaw opening, so lip sync can close the mouth between syllables.
 const STATE_POSE: Record<FaceState, Pose> = {
-  asleep: pose({ browL: -0.1, browR: -0.1, lidL: 1, lidR: 1, lowL: 0, lowR: 0, smile: 0.2 }),
-  waking: pose({ browL: 0.9, browR: 0.9, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0.2, jaw: 0.3, shape: -0.6 }),
-  listening: pose({ browL: 0.35, browR: 0.3, lidL: 0.08, lidR: 0.08, lowL: 0.2, lowR: 0.2, smile: 0.72, tilt: 3 }),
-  thinking: pose({ browL: 0.8, browR: -0.1, slantL: 0, slantR: -0.3, lidL: 0.05, lidR: 0.12, smile: 0.05, smirk: -0.4, shape: -0.5, lookX: -0.7, lookY: -0.8, tilt: -4 }),
+  // Asleep, the mask sinks back into the glass, so waking can grow it in gently.
+  asleep: pose({ browL: -0.1, browR: -0.1, lidL: 1, lidR: 1, lowL: 0, lowR: 0, smile: 0.2, tilt: -3, hy: 4, scale: -0.12 }),
+  waking: pose({ browL: 0.9, browR: 0.9, slantL: 0.25, slantR: 0.25, lidL: 0, lidR: 0, lowL: 0.15, lowR: 0.15, smile: 1, jaw: 0.3, shape: 0.5, blush: 0.3 }),
+  listening: pose({ browL: 0.35, browR: 0.3, lidL: 0.08, lidR: 0.08, lowL: 0.2, lowR: 0.2, smile: 0.72, tilt: 2 }),
+  thinking: pose({ browL: 0.85, browR: -0.1, slantL: 0, slantR: -0.3, lidL: 0.05, lidR: 0.12, smile: 0.4, smirk: -0.2, shape: -0.7, lookX: -0.55, lookY: -0.65, tilt: -2 }),
   speaking: pose({ browL: 0.3, browR: 0.3, lowL: 0.18, lowR: 0.18, smile: 0.5 }),
 };
 
 const MOOD_POSE: Record<Mood, Pose> = {
-  happy: pose({ browL: 0.45, browR: 0.45, slantL: 0.15, slantR: 0.15, lidL: 0, lidR: 0, lowL: 0.45, lowR: 0.45, smile: 0.9, blush: 0.45 }),
+  happy: pose({ browL: 0.5, browR: 0.5, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0.62, lowR: 0.62, smile: 0.95, blush: 0.45 }),
   laugh: pose({ browL: 0.6, browR: 0.6, slantL: 0.3, slantR: 0.3, lidL: 0.3, lidR: 0.3, lowL: 1, lowR: 1, smile: 1, jaw: 0.3, shape: 0.3, blush: 0.5 }),
-  surprised: pose({ browL: 1, browR: 1, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0, jaw: 0.75, shape: -0.8 }),
-  sly: pose({ browL: 0.95, browR: -0.35, slantL: -0.2, slantR: -0.6, lidL: 0.45, lidR: 0.5, lowL: 0.2, lowR: 0.2, smile: 0.7, smirk: 0.8, lookX: 0.6, tilt: 4 }),
-  wink: pose({ browL: 0.5, browR: 0.2, slantL: 0.15, slantR: 0, lidL: 0.05, lidR: 0.05, lowL: 0.4, lowR: 0.4, smile: 0.85, smirk: 0.4, blush: 0.35, tilt: 3 }),
-  spooky: pose({ browL: -0.3, browR: -0.3, slantL: -0.9, slantR: -0.9, lidL: 0.13, lidR: 0.13, lowL: 0.2, lowR: 0.2, smile: 0.9, smirk: 0.3, jaw: 0.1, shape: 0.7, lookX: 0.5, tilt: -3 }),
-  gentle: pose({ browL: 0.3, browR: 0.3, slantL: 0.3, slantR: 0.3, lidL: 0.05, lidR: 0.05, lowL: 0.5, lowR: 0.5, smile: 0.65, blush: 0.4, tilt: 5 }),
+  surprised: pose({ browL: 1, browR: 1, slantL: 0.25, slantR: 0.25, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0.05, jaw: 0.7, shape: -0.85, hy: -1.5, scale: 0.01 }),
+  sly: pose({ browL: 0.95, browR: -0.35, slantL: -0.2, slantR: -0.6, lidL: 0.45, lidR: 0.5, lowL: 0.2, lowR: 0.2, smile: 0.7, smirk: 0.8, lookX: 0.6, tilt: 2 }),
+  wink: pose({ browL: 0.5, browR: 0.2, slantL: 0.15, slantR: 0, lidL: 0.05, lidR: 0.05, lowL: 0.4, lowR: 0.4, smile: 0.85, smirk: 0.4, blush: 0.35, tilt: 1.5 }),
+  // Spooky is a giggly ghost: narrow eyes and a toothy grin, but level brows, as V brows read as a villain.
+  spooky: pose({ browL: 0.15, browR: 0.15, slantL: 0.05, slantR: 0.05, lidL: 0.25, lidR: 0.25, lowL: 0.32, lowR: 0.32, smile: 0.9, smirk: 0.3, jaw: 0.1, shape: 0.7, blush: 0.2, hy: 2 }),
+  gentle: pose({ browL: 0.3, browR: 0.3, slantL: 0.3, slantR: 0.3, lidL: 0.05, lidR: 0.05, lowL: 0.5, lowR: 0.5, smile: 0.65, blush: 0.4, tilt: 2 }),
+  excited: pose({ browL: 0.85, browR: 0.85, slantL: 0.3, slantR: 0.3, lidL: 0, lidR: 0, lowL: 0.08, lowR: 0.08, smile: 1, jaw: 0.25, shape: 0.5, blush: 0.35 }),
+  love: pose({ browL: 0.45, browR: 0.45, slantL: 0.5, slantR: 0.5, lidL: 0, lidR: 0, lowL: 0.1, lowR: 0.1, smile: 0.75, blush: 0.75, tilt: 1 }),
 };
 
 // Smoke speed and brightness, and new green wisps per second, for each state.
@@ -299,11 +381,397 @@ const SMOKE: Record<FaceState, { speed: number; alpha: number; flames: number }>
   thinking: { speed: 3, alpha: 0.85, flames: 30 },
   speaking: { speed: 1.2, alpha: 0.75, flames: 22 },
 };
-const TAU = Math.PI * 2;
-const FRAME_MS = 33; // ~30 fps: the laptop also runs the voice
 
-const clamp = (x: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, x));
-const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+// What a performance draws besides the pose keys: a blink, and the twinkle beside a winking eye.
+type Direct = Pose & { blink: number; twinkle: number };
+// A short performance. u is its progress 0..1 and s the seconds since it started. It adds to the
+// spring targets (o), so a step pops and settles, or straight to the drawn face (d), so a bounce
+// keeps its rhythm. Every curve starts and ends at 0, so performances can overlap and stop (the
+// wake starts where the head is).
+type Run = (u: number, s: number, o: Pose, d: Direct) => void;
+type Perf = readonly [seconds: number, run: Run];
+
+const WINK_LID = [0, 0, 0.12, 1, 0.55, 1, 0.75, 0];
+const WINK: Perf = [1.1, (u, _s, o, d) => {
+  const e = keys(u, WINK_LID);
+  o.lidR += 1.2 * e;
+  o.lowR += 0.5 * e;
+  o.browR -= 0.3 * e;
+  o.browL += 0.35 * e;
+  o.smirk += 0.45 * e;
+  o.smile += 0.15 * e;
+  o.tilt += 3.5 * env(u, 0.15, 0.7);
+  d.hy += 3 * bump(u, 0.1, 0.5); // a little nod with it
+  d.twinkle = Math.max(d.twinkle, bump(u, 0.1, 0.8));
+}];
+
+// Three "ho"s: the head bounces, shakes a little and the jaw drops on each.
+const HOHO: Perf = [0.95, (u, _s, o, d) => {
+  const e = env(u, 0.08, 0.8);
+  const ho = Math.sin(u * Math.PI * 3);
+  const b = Math.abs(ho);
+  d.hy -= 3.5 * b * e;
+  d.squash += (0.025 - 0.05 * b) * e; // stretch going up, squash at the bottom
+  d.jaw += 0.3 * b * e;
+  d.tilt += 2 * ho * e;
+  o.blush += 0.1 * e;
+}];
+
+// A hop: a quick crouch first, stretch on the way up, squash on landing.
+const hop = (height: number): Run => (u, _s, o, d) => {
+  d.hy += height * (0.3 * bump(u, 0, 0.2) - bump(u, 0.12, 0.68));
+  d.squash += 0.03 * bump(u, 0, 0.2) - 0.035 * bump(u, 0.12, 0.42) + 0.04 * bump(u, 0.58, 0.92);
+  o.browL += 0.15 * bump(u, 0.1, 0.75);
+  o.browR += 0.15 * bump(u, 0.1, 0.75);
+};
+
+const BIG_HOP = hop(7);
+
+// A gasp: a tiny crouch, then the head pops bigger and taller and settles (keys in seconds).
+const POP_SCALE = [0, 0, 0.08, -0.01, 0.2, 0.04, 0.38, -0.008, 0.56, 0];
+const POP_SQUASH = [0, 0, 0.08, 0.025, 0.2, -0.025, 0.34, 0.015, 0.52, 0];
+const POP_HY = [0, 0, 0.08, 2, 0.2, -3, 0.4, 0.5, 0.6, 0];
+const POP_BROW = [0, 0, 0.08, -0.3, 0.2, 0.3, 0.45, 0];
+function pop(s: number, d: Direct) {
+  d.scale += keys(s, POP_SCALE);
+  d.squash += keys(s, POP_SQUASH);
+  d.hy += keys(s, POP_HY);
+  const b = keys(s, POP_BROW);
+  d.browL += b;
+  d.browR += b;
+}
+
+// Groucho eyebrows: two quick lifts of both brows.
+function groucho(s: number, from: number, d: Direct) {
+  const x = s - from;
+  if (x <= 0 || x >= 0.8) return;
+  const w = 0.6 * Math.max(0, Math.sin(x * TAU * 2.5));
+  d.browL += w;
+  d.browR += w;
+}
+
+// In and out with a soft "aah", eyes going dreamy. The lower lids rise, not the upper ones, so the
+// heart glints stay whole.
+const SIGH: Perf = [1.8, (u, _s, o, d) => {
+  const inhale = bump(u, 0, 0.6);
+  const out = bump(u, 0.4, 0.95);
+  o.scale += 0.035 * inhale;
+  d.hy -= 2.5 * inhale;
+  o.browL += 0.25 * inhale;
+  o.browR += 0.25 * inhale;
+  o.slantL += 0.2 * out;
+  o.slantR += 0.2 * out;
+  o.jaw += 0.22 * out;
+  o.shape -= 0.9 * out;
+  o.lowL += 0.12 * bump(u, 0.35, 1);
+  o.lowR += 0.12 * bump(u, 0.35, 1);
+  d.squash += 0.025 * bump(u, 0.5, 1);
+  o.tilt += 2 * env(u, 0.2, 0.7);
+}];
+
+// The "ooo" of a silly ghost: lips round, brows up and worried, the head dips and comes back up.
+const OOO: Perf = [1.5, (u, _s, o, d) => {
+  const e = env(u, 0.2, 0.55);
+  o.shape -= 1.6 * e;
+  o.smile -= 0.7 * e;
+  o.jaw += 0.22 * e;
+  o.browL += 0.3 * e;
+  o.browR += 0.3 * e;
+  o.slantL += 0.5 * e;
+  o.slantR += 0.5 * e;
+  d.hy += 5 * bump(u, 0, 1);
+  o.tilt -= 2 * bump(u, 0, 1);
+}];
+
+// When a mood starts: a one-shot entrance.
+const MOOD_IN: Record<Mood, Perf> = {
+  happy: [0.9, (u, s, o, d) => {
+    BIG_HOP(u, s, o, d);
+    o.lowL += 0.3 * env(u, 0.1, 0.5);
+    o.lowR += 0.3 * env(u, 0.1, 0.5);
+    o.blush += 0.35 * bump(u, 0, 1);
+  }],
+  laugh: [0.7, (u, _s, o, d) => {
+    d.hy -= 5 * bump(u, 0, 0.7);
+    d.scale += 0.05 * bump(u, 0, 0.6);
+    o.tilt -= 4 * bump(u, 0, 1);
+  }],
+  surprised: [0.9, (u, s, o, d) => {
+    pop(s, d);
+    o.browL += 0.25 * env(u, 0.05, 0.5);
+    o.browR += 0.25 * env(u, 0.05, 0.5);
+  }],
+  sly: [1.4, (u, s, o, d) => {
+    const e = env(u, 0.3, 0.9);
+    o.lookX += 0.4 * e;
+    o.tilt += 2 * e;
+    groucho(s, 0.45, d);
+  }],
+  wink: WINK,
+  spooky: OOO,
+  gentle: [1.2, (u, _s, o) => {
+    o.tilt += 1.2 * env(u, 0.3, 0.7);
+    o.lidL += 0.6 * bump(u, 0.15, 0.75); // a slow soft blink
+    o.lidR += 0.6 * bump(u, 0.15, 0.75);
+    o.smile += 0.1 * env(u, 0.3, 0.7);
+  }],
+  excited: [0.8, (u, s, _o, d) => {
+    pop(s, d);
+    d.hy -= 4 * bump(u, 0.2, 0.75); // and a hop
+  }],
+  love: SIGH,
+};
+// Spring kicks (key, speed) at the start of a mood, for a jolt the springs bounce back from.
+const MOOD_KICK: Partial<Record<Mood, readonly (readonly [Key, number])[]>> = {
+  laugh: [["browL", 8], ["browR", 8]],
+  wink: [["tilt", 12]],
+};
+// While a mood is held, a performance again every few seconds: [first after, every min, every max, performance].
+const MOOD_AGAIN: Partial<Record<Mood, readonly [number, number, number, Perf]>> = {
+  happy: [2.2, 2.4, 3.4, [0.6, hop(3.5)]],
+  laugh: [0.4, 1.4, 1.8, HOHO],
+  surprised: [2.6, 2.6, 3.6, [0.6, (u, _s, o, d) => {
+    d.scale += 0.03 * bump(u, 0, 0.6);
+    d.squash -= 0.02 * bump(u, 0, 0.6);
+    o.browL += 0.25 * bump(u, 0, 1);
+    o.browR += 0.25 * bump(u, 0, 1);
+  }]],
+  sly: [2.6, 2.6, 3.6, [0.9, (u, s, o, d) => {
+    groucho(s, 0.05, d);
+    o.lookX += 0.3 * env(u, 0.2, 0.8);
+  }]],
+  wink: [3.8, 3.8, 5, WINK],
+  spooky: [3.2, 3, 4, OOO],
+  excited: [0.7, 0.8, 1.2, [0.55, hop(4)]],
+  love: [4.5, 4.5, 6, SIGH],
+};
+// How big the syllable nods and the talking sway are in each mood: the calm ones move less.
+const BEAT: Partial<Record<Mood, number>> = { gentle: 0.4, love: 0.5, spooky: 0.7, laugh: 1.2, excited: 1.2 };
+// While a mood is held: slow motion on top of its pose.
+function moodHold(m: Mood, t: number, o: Pose) {
+  switch (m) {
+    case "happy":
+      o.tilt += 2.5 * Math.sin(t * 2.2);
+      o.blush += 0.12 * Math.sin(t * 3);
+      break;
+    case "laugh":
+      o.hx += 1.5 * Math.sin(t * 1.5);
+      break;
+    case "surprised":
+      o.tilt += 1.5 * Math.sin(t * 1.1);
+      break;
+    case "sly":
+      o.lookX += 0.25 * Math.sin(t * 1.3);
+      o.tilt += 1.5 * Math.sin(t * 1.3);
+      break;
+    case "wink":
+      o.tilt += 1.5 * Math.sin(t * 1.4);
+      break;
+    case "spooky": // a slow "ooo-ooo" figure of eight
+      o.hx += 4 * Math.sin(t * 1.4);
+      o.tilt += 3.5 * Math.sin(t * 1.4);
+      o.hy += 2.5 * Math.sin(t * 2.8 - 1);
+      o.lookX += 0.45 * Math.sin(t * 1.4 - 0.6);
+      break;
+    case "gentle":
+      o.tilt += 1.8 * Math.sin(t * 0.9);
+      o.hx += 2 * Math.sin(t * 0.9 + 0.5);
+      break;
+    case "excited":
+      o.tilt += 2 * Math.sin(t * 2.6);
+      break;
+    case "love":
+      o.tilt += 3 * Math.sin(t * 1.1);
+      o.hx += 2.5 * Math.sin(t * 1.1 + 0.4);
+      o.lookY -= 0.15;
+      break;
+  }
+}
+
+// Little things the mirror does while it waits for a child to speak: [how often, performance].
+const LOOK_LR = [0, 0, 0.15, -0.95, 0.4, -0.95, 0.55, 0.95, 0.8, 0.95, 1, 0];
+const FIDGETS: readonly (readonly [number, Perf])[] = [
+  // eyebrow wiggle: left, right, left, right
+  [1, [1.4, (u, _s, o) => {
+    const l = bump(u, 0, 0.3) + bump(u, 0.5, 0.8);
+    const r = bump(u, 0.25, 0.55) + bump(u, 0.75, 1);
+    o.browL += 0.85 * l;
+    o.browR += 0.85 * r;
+    o.slantL -= 0.3 * l;
+    o.slantR -= 0.3 * r;
+    o.tilt += 3 * (r - l);
+    o.smile += 0.15 * env(u, 0.2, 0.8);
+  }]],
+  // a curious head tilt with one brow up
+  [1, [1.9, (u, _s, o) => {
+    const e = env(u, 0.2, 0.75);
+    o.tilt -= 8 * e;
+    o.hx -= 3 * e;
+    o.browR += 0.8 * e;
+    o.slantR -= 0.25 * e;
+    o.browL -= 0.1 * e;
+    o.lookX += 0.25 * e;
+    o.lookY -= 0.3 * e;
+    o.smirk -= 0.2 * e;
+  }]],
+  // look left and right, as if checking who is there; the head turns with the eyes, so it reads from afar
+  [1, [2.1, (u, _s, o) => {
+    const x = keys(u, LOOK_LR);
+    o.lookX += 1.1 * x;
+    o.hx += 7 * x;
+    o.tilt -= 5 * x;
+    o.browL += 0.2 * Math.abs(x);
+    o.browR += 0.2 * Math.abs(x);
+  }]],
+  // the eyes roll round in a circle, and the head circles with them
+  [1, [1.5, (u, _s, o) => {
+    const e = env(u, 0.15, 0.85);
+    const a = u * TAU;
+    o.lookX += 0.9 * Math.sin(a) * e;
+    o.lookY -= 0.9 * Math.cos(a) * e;
+    o.hx += 3 * Math.sin(a) * e;
+    o.hy -= 2.5 * Math.cos(a) * e;
+    o.browL += 0.3 * e;
+    o.browR += 0.3 * e;
+    o.tilt += 3 * Math.sin(a) * e;
+  }]],
+  // a cheeky side smirk with a glance
+  [1, [1.7, (u, _s, o) => {
+    const e = env(u, 0.2, 0.8);
+    o.smirk += e;
+    o.smile += 0.1 * e;
+    o.lookX += 0.9 * e;
+    o.browL += 0.6 * e;
+    o.slantL -= 0.3 * e;
+    o.lidL += 0.15 * e;
+    o.lidR += 0.25 * e;
+    o.tilt += 4 * e;
+    o.hx += 2 * e;
+  }]],
+  // a double blink
+  [1, [0.75, (u, s, o, d) => {
+    d.blink = Math.max(d.blink, blinkCurve(s), blinkCurve(s - 0.3));
+    o.browL += 0.2 * bump(u, 0, 1);
+    o.browR += 0.2 * bump(u, 0, 1);
+  }]],
+  // a little "ooh" pucker, still smiling and blushing so it never looks blank
+  [1, [1.4, (u, _s, o) => {
+    const e = env(u, 0.2, 0.75);
+    o.shape -= 1.4 * e;
+    o.jaw += 0.12 * e;
+    o.smile -= 0.3 * e;
+    o.blush += 0.25 * e;
+    o.browL += 0.45 * e;
+    o.browR += 0.45 * e;
+    o.slantL += 0.2 * e;
+    o.slantR += 0.2 * e;
+    o.lowL -= 0.1 * e;
+    o.lowR -= 0.1 * e;
+    o.scale += 0.02 * e;
+    o.lookY -= 0.25 * e;
+  }]],
+  // and now and then a wink
+  [0.35, WINK],
+];
+const FIDGET_WEIGHT = FIDGETS.reduce((sum, [w]) => sum + w, 0);
+
+// The mask grows in gently from its sleeping size with its eyes shut (fast growth would loom at a
+// small child), bounces just past full size, then the eyes and brows fly open with a big grin.
+// It starts from where the head is (scale, hy), so nothing jumps. Keys in seconds.
+const WAKE_BOUNCE = [0, 0, 0.3, 0, 0.6, 0.045, 0.82, -0.01, 1, 0];
+const WAKE_SQUASH = [0, 0, 0.12, 0.025, 0.38, -0.03, 0.62, 0.035, 0.82, -0.01, 1, 0];
+const WAKE_RISE = [0, 0, 0.3, 0, 0.6, -2.5, 0.85, 0.5, 1.05, 0];
+const WAKE_OPEN = 0.55;
+// main.ts moves on to thinking 1.2 s after waking, so the entrance fits in that.
+const wakeFrom = (scale: number, hy: number): Perf => [1.2, (_u, s, o, d) => {
+  const grow = 1 - smooth(s / 0.6);
+  d.scale += scale * grow + keys(s, WAKE_BOUNCE);
+  d.squash += keys(s, WAKE_SQUASH);
+  d.hy += hy * grow + keys(s, WAKE_RISE);
+  if (s < WAKE_OPEN) {
+    o.lidL += 1;
+    o.lidR += 1;
+    o.browL -= 1;
+    o.browR -= 1;
+    o.smile -= 0.6;
+    o.jaw -= 0.3;
+  }
+  d.blink = Math.max(d.blink, blinkCurve(s - WAKE_OPEN - 0.3));
+  o.tilt += 4 * bump(s, WAKE_OPEN, 1.2);
+}];
+// "Hmm": a quick tilt and a brow up as thinking starts.
+const HMM: Perf = [0.8, (u, s, o, d) => {
+  d.squash += 0.035 * bump(u, 0, 0.4);
+  o.tilt -= 3 * env(u, 0.2, 0.6);
+  o.browL += 0.35 * bump(u, 0, 0.7);
+  d.blink = Math.max(d.blink, blinkCurve(s - 0.05));
+}];
+// "Your turn": brows up, a little lean and a nod when the mirror stops talking.
+const YOUR_TURN: Perf = [0.9, (u, _s, o, d) => {
+  o.browL += 0.35 * bump(u, 0, 1);
+  o.browR += 0.35 * bump(u, 0, 1);
+  o.scale += 0.025 * bump(u, 0, 1);
+  o.tilt += 3 * bump(u, 0, 1);
+  d.hy += 2 * bump(u, 0.05, 0.4);
+}];
+// A pleased smile and a nod when the child stops talking.
+const PLEASED: Perf = [1.1, (u, _s, o, d) => {
+  const e = env(u, 0.15, 0.55);
+  o.smile += 0.3 * e;
+  o.lowL += 0.4 * e;
+  o.lowR += 0.4 * e;
+  o.blush += 0.3 * e;
+  o.browL += 0.25 * e;
+  o.browR += 0.25 * e;
+  o.slantL += 0.2 * e;
+  o.slantR += 0.2 * e;
+  o.tilt += 3 * e;
+  d.hy += 3 * bump(u, 0.05, 0.35);
+  d.squash += 0.03 * bump(u, 0.05, 0.35);
+}];
+// "Mm-hmm": a slow nod with a smile on the child's syllables, so they see the mirror is listening.
+const MMHMM: Perf = [0.6, (u, _s, o, d) => {
+  const n = bump(u, 0, 0.65);
+  d.hy += 7 * n;
+  d.squash += 0.03 * n; // the face foreshortens as it nods
+  o.smile += 0.12 * bump(u, 0, 1);
+  o.lowL += 0.15 * bump(u, 0, 1);
+  o.lowR += 0.15 * bump(u, 0, 1);
+}];
+// A quick smile with the eyes while talking; these moods have their own eyes, or star and heart glints it would hide.
+const NO_EYE_SMILE: readonly Mood[] = ["laugh", "surprised", "spooky", "sly", "wink", "excited", "love"];
+const EYE_SMILE: Perf = [0.7, (u, _s, o) => {
+  // Lift the lower lids to a smile, but never shut eyes that already smile.
+  o.lowL += Math.max(0, 0.62 - o.lowL) * bump(u, 0, 1);
+  o.lowR += Math.max(0, 0.62 - o.lowR) * bump(u, 0, 1);
+  o.smile += 0.1 * bump(u, 0, 1);
+  o.browL += 0.1 * bump(u, 0, 1);
+  o.browR += 0.1 * bump(u, 0, 1);
+}];
+// Falling asleep: a big cartoon yawn with the eyes squeezed shut, a sleepy peek, then the eyes close
+// and the head sinks.
+const YAWN_OPEN = [0, 0, 0.3, 1, 0.6, 1, 0.82, 0];
+const YAWN_EYES = [0, 0.6, 0.22, 0, 0.62, 0, 0.72, 0.45, 0.9, 0]; // how far the eyes are open
+const YAWN_SIZE = [0, 1, 0.75, 1, 1, 0]; // the head keeps its size until it sinks back at the end
+const YAWN: Perf = [2.6, (u, _s, o) => {
+  const open = keys(u, YAWN_OPEN);
+  const awake = keys(u, YAWN_EYES);
+  o.jaw += 0.8 * open;
+  o.shape -= 0.8 * open;
+  o.smile -= 0.1 * open;
+  o.lidL -= 0.85 * awake;
+  o.lidR -= 0.85 * awake;
+  o.lowL += 0.5 * open;
+  o.lowR += 0.5 * open;
+  o.browL += 0.3 * open;
+  o.browR += 0.3 * open;
+  o.slantL += 0.25 * open;
+  o.slantR += 0.25 * open;
+  o.squash -= 0.025 * open;
+  o.hy -= 4 * open; // the head tips back
+  o.scale += 0.09 * keys(u, YAWN_SIZE) + 0.03 * open;
+  o.tilt += 3 * open;
+}];
 
 // The lower edge of the purple over each eye is the brow: it rises from the nose and peaks
 // above the outer half of the eye, like the mask in the film.
@@ -425,6 +893,13 @@ function newTwinkle(): Twinkle {
   };
 }
 
+// The head turns, tilts and squashes round this point, between the mouth and the chin (viewBox units).
+const PIVOT_Y = 60;
+const WINK_SPARK = "translate(84 -44)"; // beside the outer corner of the winking eye
+const GLINT_POP = [0, 0, 0.15, 1.25, 0.3, 1]; // star and heart glints, seconds after the mood starts
+
+type Act = { tag: string; t0: number; dur: number; run: Run };
+
 export function createMaskFace(root: HTMLElement): Face {
   root.classList.add("mirror");
   // Set before the first layout, so the mask starts faded instead of fading out from full.
@@ -436,10 +911,13 @@ export function createMaskFace(root: HTMLElement): Face {
   const flash = document.querySelector<HTMLDivElement>("#flash")!;
   const one = <T extends Element>(cls: string) => root.querySelector<T>(cls)!;
   const all = (cls: string) => [...root.querySelectorAll<SVGElement>(cls)];
-  const head = one<SVGGElement>(".head");
+  const rigEl = one<SVGGElement>(".rig");
   const brows = all(".brow");
   const browLines = all(".brow-line");
   const irises = all(".iris");
+  const starGlints = all(".g-star");
+  const heartGlints = all(".g-heart");
+  const twink = one<SVGGElement>(".twink");
   const lidsUp = all(".lid-up");
   const lidsLow = all(".lid-low");
   const lashes = all(".lash");
@@ -488,21 +966,89 @@ export function createMaskFace(root: HTMLElement): Face {
 
   let state: FaceState = "asleep";
   let mood: Mood | undefined;
+  // The rig: each key's value and speed, the targets it springs to, and what is drawn.
   const rig: Pose = { ...STATE_POSE.asleep };
+  const vel = new Float64Array(POSE_KEYS.length);
+  const tgt: Pose = { ...CALM };
+  const d: Direct = { ...CALM, blink: 0, twinkle: 0 };
+  const p: Pose = { ...CALM };
+  // For stop(): what a stopped act was drawing this frame.
+  const stopO: Pose = { ...CALM };
+  const stopD: Direct = { ...CALM, blink: 0, twinkle: 0 };
+  const acts: Act[] = [];
   let mouthTarget = 0;
   let shapeTarget = 0;
   let speech = 0; // smoothed mouth level from the voice
   let speechShape = 0;
   let speechAvg = 0; // slow average, to find the stressed syllables
-  let browPop = 0; // eyebrows jump on stressed syllables
-  let nod = 0;
   let nextBeat = 0;
+  let beatSide = 1;
   let blinkAt = -1;
   let nextBlink = 2;
-  let winkUntil = 0;
   let glanceX = 0;
   let glanceY = 0;
   let nextGlance = 0;
+  let nextFidget = 0;
+  let lastFidget = -1;
+  let nextMoodAgain = Infinity;
+  let nextEyeSmile = 0;
+  let twinkOn = false;
+  let moodFrom = 0;
+  // The child's voice.
+  let heard = 0;
+  let heardAt = -1;
+  let hearLevel = 0;
+  let hearAvg = 0;
+  let childOn = false;
+  let childFrom = 0;
+  let childLast = 0;
+  let nextHearNod = 0;
+  let attention = 0; // 0..1, leaning in while the child talks
+  let thinkFrom = 0; // the "hmm" face waits until the pleased smile has shown
+
+  const now = () => performance.now() / 1000;
+  const kick = (key: Key, speed: number) => (vel[IDX[key]] += speed);
+  const play = (tag: string, [dur, run]: Perf, at = now()) => acts.push({ tag, t0: at, dur, run });
+  // Runs an act at s seconds into stopD.
+  function sample(act: Act, s: number) {
+    for (const k of POSE_KEYS) stopO[k] = stopD[k] = 0;
+    act.run(s / act.dur, s, stopO, stopD);
+  }
+  function stop(tag: string, t: number) {
+    const h = 0.02;
+    for (let i = acts.length - 1; i >= 0; i--) {
+      const act = acts[i];
+      if (act.tag !== tag) continue;
+      acts.splice(i, 1);
+      const s = Math.max(0, t - act.t0);
+      if (s >= act.dur) continue;
+      // What the act drew straight onto the face would vanish in one frame, so hand where it was,
+      // and how fast it moved, to the springs, which ease it back.
+      sample(act, s + h);
+      for (let j = 0; j < POSE_KEYS.length; j++) vel[j] += stopD[POSE_KEYS[j]] / h;
+      sample(act, s);
+      for (let j = 0; j < POSE_KEYS.length; j++) {
+        const k = POSE_KEYS[j];
+        rig[k] += stopD[k];
+        vel[j] -= stopD[k] / h;
+      }
+    }
+  }
+  function pleased(t: number) {
+    play("react", PLEASED, t);
+    thinkFrom = t + 0.8;
+  }
+  // A weighted random fidget, never the last one again.
+  function pickFidget(): number {
+    let pick = Math.random() * (FIDGET_WEIGHT - (lastFidget >= 0 ? FIDGETS[lastFidget][0] : 0));
+    let i = -1;
+    for (let j = 0; j < FIDGETS.length; j++) {
+      if (j === lastFidget) continue;
+      i = j;
+      if ((pick -= FIDGETS[j][0]) <= 0) break;
+    }
+    return i;
+  }
 
   function flag(cls: string, ms: number) {
     root.classList.add(cls);
@@ -519,64 +1065,189 @@ export function createMaskFace(root: HTMLElement): Face {
     }
   }
 
-  function animateFace(t: number, dt: number) {
-    const target = { ...(mood ? MOOD_POSE[mood] : STATE_POSE[state]) };
+  // Sets the spring targets (tgt) and direct offsets (d) for this frame.
+  function perform(t: number, dt: number) {
+    const pondering = state === "thinking" && t >= thinkFrom;
+    const base = mood ? MOOD_POSE[mood] : state === "thinking" && !pondering ? STATE_POSE.listening : STATE_POSE[state];
+    for (const k of POSE_KEYS) {
+      tgt[k] = base[k];
+      d[k] = 0;
+    }
+    d.blink = 0;
+    d.twinkle = 0;
+
+    // The mirror's own voice: nods, a little squash and brow pops on stressed syllables.
+    speech = lerp(speech, mouthTarget, 1 - Math.exp(-dt * (mouthTarget > speech ? 30 : 14)));
+    speechShape = lerp(speechShape, shapeTarget, 1 - Math.exp(-dt * 12));
+    speechAvg = lerp(speechAvg, speech, 1 - Math.exp(-dt * 3));
+    const energy = Math.min(1, speechAvg * 2.2);
+    const beat = (mood && BEAT[mood]) || 1;
+    if (state === "speaking" && speech - speechAvg > 0.22 && t > nextBeat) {
+      beatSide = -beatSide;
+      kick("hy", beat * (50 + Math.random() * 40));
+      kick("squash", beat * (0.5 + Math.random() * 0.4));
+      kick("browL", 6 + Math.random() * 6);
+      kick("browR", 6 + Math.random() * 6);
+      kick("tilt", beat * beatSide * (15 + Math.random() * 20));
+      nextBeat = t + 0.35;
+    }
+
+    // The child's voice: lean in while they talk, nod on their syllables, smile when they stop.
+    const level = state === "listening" && t - heardAt < 0.25 ? heard : 0;
+    hearLevel = lerp(hearLevel, level, 1 - Math.exp(-dt * (level > hearLevel ? 25 : 8)));
+    hearAvg = lerp(hearAvg, hearLevel, 1 - Math.exp(-dt * 2.5));
+    if (level > 0.12) {
+      if (!childOn) {
+        // "Oh!": drop any fidget, so the mirror never looks away from a child who starts talking.
+        childFrom = t;
+        stop("fidget", t);
+        kick("browL", 10);
+        kick("browR", 10);
+        kick("scale", 0.6);
+        nextHearNod = t + 0.3;
+      }
+      childOn = true;
+      childLast = t;
+    } else if (childOn && t - childLast > 0.6) {
+      childOn = false;
+      if (t - childFrom > 0.8) pleased(t);
+      nextFidget = t + 3 + Math.random() * 2;
+    }
+    if (childOn && hearLevel - hearAvg > 0.12 && t > nextHearNod) {
+      beatSide = -beatSide;
+      play("react", MMHMM, t);
+      kick("tilt", beatSide * 10);
+      kick("browL", 8);
+      kick("browR", 8);
+      nextHearNod = t + 0.8 + Math.random() * 0.3;
+    }
+    attention = lerp(attention, childOn ? 1 : 0, 1 - Math.exp(-dt * (childOn ? 6 : 2.5)));
+
+    // Breathing, and slow motion for each state.
+    const asleep = state === "asleep";
+    const breath = Math.sin(t * (asleep ? 1.1 : 1.6));
+    tgt.scale += breath * (asleep ? 0.012 : 0.007);
+    tgt.hy -= breath * (asleep ? 1.2 : 0.7);
+    if (state === "listening") {
+      tgt.tilt += 1.5 * Math.sin(t * 0.6);
+      tgt.hx += 1.5 * Math.sin(t * 0.45);
+    } else if (pondering && !mood) {
+      // "Hmmm": eyes circle up to the side, lips purse side to side, the head rocks.
+      tgt.lookX += 0.4 * Math.cos(t * 1.6);
+      tgt.lookY += 0.3 * Math.sin(t * 1.6);
+      tgt.smirk += 0.55 * Math.sin(t * 2.4);
+      tgt.tilt += 3.5 * Math.sin(t * 1.2);
+      tgt.hx += 2 * Math.sin(t * 1.2);
+      tgt.browL += 0.15 * Math.sin(t * 2.4 + 1);
+    } else if (state === "speaking") {
+      tgt.tilt += 2 * beat * Math.sin(t * 1.3);
+      tgt.hx += 2.5 * beat * Math.sin(t * 0.8);
+      // The brows dance with the voice, each to its own beat.
+      tgt.browL += energy * (0.25 + 0.15 * Math.sin(t * 2.9));
+      tgt.browR += energy * (0.25 + 0.15 * Math.sin(t * 2.3 + 2));
+      tgt.hy += energy;
+      if (t > nextEyeSmile) {
+        if (!mood || !NO_EYE_SMILE.includes(mood)) play("talk", EYE_SMILE, t);
+        nextEyeSmile = t + 3 + Math.random() * 3;
+      }
+    }
+    if (mood) {
+      moodHold(mood, t, tgt);
+      const again = MOOD_AGAIN[mood];
+      if (again && t > nextMoodAgain) {
+        play("mood", again[3], t);
+        nextMoodAgain = t + again[1] + Math.random() * (again[2] - again[1]);
+      }
+    }
+
+    // Glances at the audience.
     const lively = state === "listening" || state === "speaking";
     if (lively && t > nextGlance) {
       glanceX = (Math.random() - 0.5) * 0.7;
       glanceY = (Math.random() - 0.5) * 0.4;
       nextGlance = t + 1.2 + Math.random() * 2.3;
-      if (state === "listening" && Math.random() < 0.2) browPop = 0.45; // a curious eyebrow flick
     }
     if (lively) {
-      target.lookX += glanceX;
-      target.lookY += glanceY;
+      tgt.lookX += glanceX;
+      tgt.lookY += glanceY;
     }
-    if (state === "thinking") {
-      target.smirk += Math.sin(t * 2.6) * 0.35; // "hmm" lips
-      target.lookX += Math.sin(t * 0.9) * 0.25;
-    }
-    if (mood === "wink" && t < winkUntil) {
-      target.lidR = 0.3;
-      target.lowR = 1;
-    }
-    const k = 1 - Math.exp(-dt * 7);
-    for (const key of POSE_KEYS) rig[key] = lerp(rig[key], target[key], k);
 
-    speech = lerp(speech, mouthTarget, 1 - Math.exp(-dt * (mouthTarget > speech ? 30 : 14)));
-    speechShape = lerp(speechShape, shapeTarget, 1 - Math.exp(-dt * 12));
-    speechAvg = lerp(speechAvg, speech, 1 - Math.exp(-dt * 3));
-    if (speech - speechAvg > 0.22 && t > nextBeat) {
-      browPop = 0.25 + Math.random() * 0.25;
-      nod = 1.5 + Math.random() * 2;
-      nextBeat = t + 0.35;
+    // Idle fidgets, never the same one twice running.
+    if (state === "listening" && !childOn && t > nextFidget) {
+      const i = pickFidget();
+      lastFidget = i;
+      play("fidget", FIDGETS[i][1], t);
+      nextFidget = t + Math.max(FIDGETS[i][1][0] + 1, 3 + Math.random() * 4);
     }
-    browPop *= Math.exp(-dt * 4);
-    nod *= Math.exp(-dt * 5);
 
+    if (attention > 0.001) {
+      const a = attention;
+      tgt.scale += 0.05 * a;
+      tgt.hy += 1.5 * a;
+      tgt.browL += 0.35 * a;
+      tgt.browR += 0.35 * a;
+      tgt.lidL = lerp(tgt.lidL, 0, a);
+      tgt.lidR = lerp(tgt.lidR, 0, a);
+      tgt.lowL = lerp(tgt.lowL, 0.06, a);
+      tgt.lowR = lerp(tgt.lowR, 0.06, a);
+      tgt.lookX *= 1 - a;
+      tgt.lookY *= 1 - a;
+    }
+
+    // An act that has not started yet runs at 0, where it adds nothing (or, for the wake, where the
+    // head already is). Frame times can be a little behind the clock an act was started with.
+    for (let i = acts.length - 1; i >= 0; i--) {
+      const act = acts[i];
+      const s = Math.max(0, t - act.t0);
+      if (s >= act.dur) acts.splice(i, 1);
+      else act.run(s / act.dur, s, tgt, d);
+    }
+  }
+
+  // Moves every key towards its target on its spring. Small steps keep it steady after a slow frame.
+  function stepSprings(dt: number) {
+    const n = Math.ceil(dt * 120);
+    const h = dt / n;
+    for (let step = 0; step < n; step++) {
+      for (let i = 0; i < POSE_KEYS.length; i++) {
+        const k = POSE_KEYS[i];
+        vel[i] += (STIFF[i] * (tgt[k] - rig[k]) - DAMP[i] * vel[i]) * h;
+        rig[k] += vel[i] * h;
+      }
+    }
+  }
+
+  function animateFace(t: number, dt: number) {
+    perform(t, dt);
+    if (dt > 0) stepSprings(dt);
+    for (let i = 0; i < POSE_KEYS.length; i++) {
+      const k = POSE_KEYS[i];
+      p[k] = (SOFT[i] ? soft : clamp)(rig[k] + d[k], LIMIT[k][0], LIMIT[k][1]);
+    }
+
+    const slow = mood === "gentle"; // gentle eyes blink slowly
     if (t > nextBlink) {
       blinkAt = t;
-      nextBlink = t + (Math.random() < 0.15 ? 0.35 : 2 + Math.random() * 4);
+      nextBlink = t + (slow ? 2.2 + Math.random() * 1.3 : Math.random() < 0.15 ? 0.35 : 2 + Math.random() * 4);
     }
-    const phase = (t - blinkAt) / 0.18;
-    const blink = state === "asleep" || phase >= 1 ? 0 : phase < 0.4 ? phase / 0.4 : 1 - (phase - 0.4) / 0.6;
+    const blink = state === "asleep" ? 0 : Math.max(d.blink, blinkCurve(t - blinkAt, slow ? 0.45 : 0.18));
 
-    const sway = state === "speaking" ? Math.sin(t * 1.3) * 1.5 : Math.sin(t * 0.6) * 0.8;
-    const bounce = mood === "laugh" && state === "speaking" ? -Math.abs(Math.sin(t * 9)) * 3 : 0;
-    head.setAttribute("transform", `translate(0 ${f(nod + bounce)}) rotate(${f(rig.tilt + sway)} 0 0)`);
+    const sx = (1 + p.scale) * (1 + p.squash);
+    const sy = (1 + p.scale) * (1 - p.squash);
+    rigEl.setAttribute("transform", `translate(${f(p.hx)} ${f(p.hy + PIVOT_Y)}) rotate(${f(p.tilt)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)}) translate(0 ${-PIVOT_Y})`);
 
     for (let i = 0; i < 2; i++) {
       const side = i ? 1 : -1;
       const cx = EYE_X[i];
-      const raise = (i ? rig.browR : rig.browL) + browPop;
-      const slant = i ? rig.slantR : rig.slantL;
+      const raise = i ? p.browR : p.browL;
+      const slant = i ? p.slantR : p.slantL;
       brows[i].setAttribute("d", browCap(side, raise, slant));
       browLines[i].setAttribute("d", browLine(side, raise, slant));
 
       // The upper lid comes down and the lower lid comes up. Where they meet, the closed eye is a
       // sleepy curve (upper lid wins) or a happy arc (lower lid wins).
-      const lidDown = Math.max(i ? rig.lidR : rig.lidL, blink);
-      const low = i ? rig.lowR : rig.lowL;
+      const lidDown = Math.max(i ? p.lidR : p.lidL, blink);
+      const low = i ? p.lowR : p.lowL;
       let up = lerp(LID_TOP, LID_BOTTOM, lidDown);
       let down = lerp(LID_BOTTOM, LID_TOP, low);
       if (up >= down) up = down = lerp(LID_BOTTOM, LID_TOP, low / (lidDown + low));
@@ -592,27 +1263,42 @@ export function createMaskFace(root: HTMLElement): Face {
       lidLines[i].setAttribute("d", curve(cx, down));
       creases[i].setAttribute("d", curve(cx, up - 7));
       // The spark rides up with the lower lid, so a smiling eye shows all of it, not half.
-      const iy = Math.min(EYE_Y - 6 + clamp(rig.lookY) * 5, EYE_Y + down * 0.75 - 10);
-      irises[i].setAttribute("transform", `translate(${f(cx + clamp(rig.lookX) * 9)} ${f(iy)})`);
-      blushes[i].setAttribute("opacity", f(rig.blush));
+      const iy = Math.min(EYE_Y - 6 + p.lookY * 7, EYE_Y + down * 0.75 - 10);
+      irises[i].setAttribute("transform", `translate(${f(cx + p.lookX * 12)} ${f(iy)})`);
+      blushes[i].setAttribute("opacity", f(p.blush));
+      // Star eyes twinkle; heart eyes beat. Both pop in when the mood starts. CSS shows them only
+      // for their mood.
+      if (mood === "excited") {
+        const k = keys(t - moodFrom, GLINT_POP) * (0.95 + 0.15 * Math.sin(t * 7 + i * 0.8));
+        starGlints[i].setAttribute("transform", `rotate(${f(14 * Math.sin(t * 2.5 + i))}) scale(${k.toFixed(2)})`);
+      } else if (mood === "love") {
+        const ph = (t * 1.3) % 1;
+        const k = keys(t - moodFrom, GLINT_POP) * (1 + 0.13 * (bump(ph, 0, 0.18) + 0.6 * bump(ph, 0.22, 0.4)));
+        heartGlints[i].setAttribute("transform", `scale(${k.toFixed(2)})`);
+      }
+    }
+    if (d.twinkle > 0.001 || twinkOn) {
+      twinkOn = d.twinkle > 0.001;
+      twink.setAttribute("opacity", d.twinkle.toFixed(2));
+      twink.setAttribute("transform", `${WINK_SPARK} rotate(${f((t * 120) % 360)}) scale(${(0.3 + 0.9 * d.twinkle).toFixed(2)})`);
     }
 
     // Mouth: the voice opens it and shapes it; the pose sets the smile. A big smile drops the lower
     // lip with no sound, so the grin shows its teeth like the mask in the film.
-    const open = clamp(rig.jaw + speech * (1 - rig.jaw * 0.6), 0, 1);
-    const shape = lerp(rig.shape, clamp(rig.shape * 0.4 + speechShape), Math.min(1, speech * 4));
+    const open = clamp(p.jaw + speech * (1 - p.jaw * 0.6), 0, 1);
+    const shape = lerp(p.shape, clamp(p.shape * 0.4 + speechShape), Math.min(1, speech * 4));
     const round = Math.max(0, -shape);
-    const w = 40 + Math.max(0, shape) * 6 - round * 16 + Math.max(0, rig.smile) * 6;
-    const dx = rig.smirk * 4;
+    const w = 40 + Math.max(0, shape) * 6 - round * 16 + Math.max(0, p.smile) * 6;
+    const dx = p.smirk * 4;
     const lx = dx - w;
     const rx = dx + w;
-    const ly = MOUTH_Y - rig.smile * 12 + rig.smirk * 4;
-    const ry = MOUTH_Y - rig.smile * 12 - rig.smirk * 10;
+    const ly = MOUTH_Y - p.smile * 12 + p.smirk * 4;
+    const ry = MOUTH_Y - p.smile * 12 - p.smirk * 10;
     const kx = 0.55 + round * 0.4; // fuller curves make an O when the lips round
     const c1 = f(dx - w * kx);
     const c2 = f(dx + w * kx);
-    const mid = MOUTH_Y + rig.smile * 3; // the middle stays while the corners move
-    const grin = Math.max(0, rig.smile - 0.4) * 38 * (1 - round);
+    const mid = MOUTH_Y + p.smile * 3; // the middle stays while the corners move
+    const grin = Math.max(0, p.smile - 0.4) * 38 * (1 - round);
     const upY = mid - open * (3 + round * 7);
     const loY = mid + Math.min(48, grin + open * (38 + round * 8)); // the chin sets the limit
     const L = `${f(lx)},${f(ly)}`;
@@ -637,7 +1323,7 @@ export function createMaskFace(root: HTMLElement): Face {
     tongue.setAttribute("rx", f(w * 0.5));
 
     // Small dimples at the mouth corners when it smiles.
-    const dimple = Math.min(0.35, Math.max(0, rig.smile - 0.4) * 0.9);
+    const dimple = Math.min(0.35, Math.max(0, p.smile - 0.4) * 0.9);
     for (let i = 0; i < 2; i++) {
       const side = i ? 1 : -1;
       const cx = i ? rx : lx;
@@ -739,22 +1425,74 @@ export function createMaskFace(root: HTMLElement): Face {
   animateFace(performance.now() / 1000, 0); // so the first paint already has brows, lids and lips
   requestAnimationFrame(frame);
 
+  function showMood(next: Mood | undefined) {
+    mood = next;
+    root.dataset.mood = next ?? "";
+  }
+
   return {
     setState(next) {
+      const prev = state;
+      const t = now();
       state = next;
       root.dataset.state = next;
       smoke = SMOKE[next];
-      if (next !== "speaking") mood = undefined;
-      if (next === "waking") burst = 1.2; // the mirror appears in a gust of smoke
+      if (next !== "speaking") {
+        showMood(undefined);
+        stop("mood", t);
+      }
+      if (next === prev) return;
+      nextEyeSmile = t + 2.5 + Math.random() * 2;
+      // "react" and "talk" acts are short and left to finish on their own.
+      stop("fidget", t);
+      stop("state", t);
+      nextFidget = t + 1.5 + Math.random() * 1.5;
+      if (childOn && next === "thinking") pleased(t);
+      childOn = false;
+      switch (next) {
+        case "waking":
+          burst = 1.2; // the mirror appears in a gust of smoke
+          addSparks(30);
+          // The entrance grows the head from here, so the springs start at the awake size.
+          play("state", wakeFrom(rig.scale, rig.hy), t);
+          rig.scale = rig.hy = vel[IDX.scale] = vel[IDX.hy] = 0;
+          break;
+        case "thinking":
+          play("state", HMM, Math.max(t, thinkFrom));
+          break;
+        case "listening":
+          if (prev === "speaking" || prev === "thinking") play("state", YOUR_TURN, t);
+          break;
+        case "asleep":
+          play("state", YAWN, t);
+          break;
+      }
     },
     setMouth(open, shape) {
       mouthTarget = open;
       shapeTarget = shape;
     },
     setMood(next) {
-      mood = next;
-      if (next === "wink") winkUntil = performance.now() / 1000 + 0.7;
+      showMood(next);
+      const t = now();
+      moodFrom = t;
+      // Hide the glints until the next frame pops them in.
+      for (const g of next === "excited" ? starGlints : next === "love" ? heartGlints : []) g.setAttribute("transform", "scale(0)");
+      stop("mood", t);
+      play("mood", MOOD_IN[next], t);
+      for (const [key, speed] of MOOD_KICK[next] ?? []) kick(key, speed);
+      const again = MOOD_AGAIN[next];
+      nextMoodAgain = again ? t + again[0] : Infinity;
       if (next === "spooky") addSparks(14); // a "hee-hee" twinkle, not a threat
+      if (next === "excited") {
+        addSparks(40);
+        burst = Math.max(burst, 0.5);
+      }
+      if (next === "love") addSparks(12);
+    },
+    hear(level) {
+      heard = level;
+      heardAt = now();
     },
     effect(name: Effect) {
       switch (name) {

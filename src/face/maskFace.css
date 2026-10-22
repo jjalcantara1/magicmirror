@@ -56,18 +56,28 @@
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
 
-/* maskFace.ts moves the head, eyes, brows and mouth. CSS only fades things in and out. */
+/* maskFace.ts moves the head, eyes, brows and mouth. CSS only fades things in and out and swaps the eye glints. */
 .mirror .iris { opacity: 0.8; transition: opacity 0.4s ease; }
 .mirror .halo { opacity: 0.75; }
 
-/* asleep: a faint shape in the dark glass, eyes closed */
-.mirror[data-state="asleep"] .mask { opacity: 0.1; }
-.mirror[data-state="asleep"] .halo { opacity: 0; }
-.mirror[data-state="asleep"] .glass { opacity: 0.35; }
+/* asleep: a faint shape in the dark glass, eyes closed. The fade waits, so the yawn shows. */
+.mirror[data-state="asleep"] .mask { opacity: 0.1; transition: opacity 2s ease 1.6s; }
+/* waking: the mask fades in fast, so its grow and bounce show in full */
+.mirror[data-state="waking"] .mask { transition-duration: 0.25s; }
+.mirror[data-state="asleep"] .halo { opacity: 0; transition-delay: 1.6s; }
+.mirror[data-state="asleep"] .glass { opacity: 0.35; transition-delay: 1.6s; }
 
 .mirror[data-state="listening"] .iris,
 .mirror[data-state="speaking"] .iris { opacity: 1; }
 .mirror[data-state="thinking"] .iris { animation: mm-pulse 0.9s ease-in-out infinite alternate; }
+
+/* Star eyes for excited, heart eyes for love. */
+.mirror .g-star,
+.mirror .g-heart { display: none; }
+.mirror[data-mood="excited"] .g-star,
+.mirror[data-mood="love"] .g-heart { display: inline; }
+.mirror[data-mood="excited"] .g-spark,
+.mirror[data-mood="love"] .g-spark { display: none; }
 
 /* The tiara has its own gem, so the small forehead gem steps aside. */
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
