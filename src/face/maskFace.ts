@@ -1,9 +1,10 @@
 import "./maskFace.css";
 import type { Effect, Face, FaceState, Mood } from "./face.ts";
 
-// Original design in the spirit of the Queen's magic mirror: a pale mask with glowing eyes, floating
-// in smoke. Brows, lids, eyes, cheeks, lips and head all move, so the mirror can grin, wink and gasp.
-const EYE_X = [-36, 36]; // viewer's left eye, viewer's right eye
+// In the style of the Queen's magic mirror: a theatrical mask, purple in shadow above and lit green
+// from below, with hollow eyes, in purple smoke and green flames. Brows, lids, eyes, cheeks, lips and
+// head all move, so the mirror can grin, wink and gasp.
+const EYE_X = [-35, 35]; // viewer's left eye, viewer's right eye
 const EYE_Y = -14;
 const EYE_W = 23; // half the width of an eye
 const LID_TOP = -19; // curve height of the upper edge of an open eye
@@ -11,52 +12,76 @@ const LID_BOTTOM = 13; // curve height of the lower edge of an open eye
 const MOUTH_Y = 63;
 const f = (x: number) => x.toFixed(1);
 
+// Flat brow, high cheekbones, round jaw, narrow chin.
+const MASK =
+  "M-82,-110 C-55,-123 55,-123 82,-110 C89,-106 89,-90 87,-62 C85,-35 91,-10 88,10 C85,45 70,80 44,104 " +
+  "C32,115 18,124 0,126 C-18,124 -32,115 -44,104 C-70,80 -85,45 -88,10 C-91,-10 -85,-35 -87,-62 C-89,-90 -89,-106 -82,-110Z";
+
 const curve = (cx: number, h: number) => `M${cx - EYE_W},${EYE_Y} C${cx - 13},${f(EYE_Y + h)} ${cx + 13},${f(EYE_Y + h)} ${cx + EYE_W},${EYE_Y}`;
 // The part of the eye between the lids.
 const opening = (cx: number, up: number, down: number) => `${curve(cx, up)} C${cx + 13},${f(EYE_Y + down)} ${cx - 13},${f(EYE_Y + down)} ${cx - EYE_W},${EYE_Y}Z`;
 // The socket shadow is an ellipse path; the open part of the eye is cut out of it, so the lids are shaded too.
-const socketPath = (cx: number) => `M${cx - 36},${EYE_Y + 2} A36,27 0 1,0 ${cx + 36},${EYE_Y + 2} A36,27 0 1,0 ${cx - 36},${EYE_Y + 2}Z`;
+const socketPath = (cx: number) => `M${cx - 36},${EYE_Y - 3} A36,24 0 1,0 ${cx + 36},${EYE_Y - 3} A36,24 0 1,0 ${cx - 36},${EYE_Y - 3}Z`;
 
+// Hollow eyes with a glowing spark that looks around.
 const eye = (cx: number, i: number) => `
     <g clip-path="url(#mm-eye-${i})">
-      <rect x="${cx - 27}" y="${EYE_Y - 18}" width="54" height="34" fill="#0c1917"/>
-      <g class="iris"><circle r="11.5" fill="url(#mm-iris)"/><circle r="4.2" fill="#0a2a24"/><circle cx="-3.6" cy="-3.9" r="2.2" fill="#fff"/></g>
+      <rect x="${cx - 27}" y="${EYE_Y - 18}" width="54" height="34" fill="#100616"/>
+      <g class="iris"><circle r="8" fill="url(#mm-iris)"/></g>
     </g>
     <path class="lid-up" fill="url(#mm-skin)"/>
     <path class="lid-low" fill="url(#mm-skin)"/>
     <path class="socket" fill="url(#mm-socket)" fill-rule="evenodd"/>
-    <path class="crease" fill="none" stroke="#7d958e" stroke-width="1.4" stroke-linecap="round" opacity="0.5"/>
-    <path class="lash" fill="none" stroke="#38554f" stroke-width="2.6" stroke-linecap="round"/>`;
+    <path class="crease" fill="none" stroke="#2c1446" stroke-width="1.4" stroke-linecap="round" opacity="0.6"/>
+    <path class="lash" fill="none" stroke="#1b0a28" stroke-width="2.8" stroke-linecap="round"/>`;
 
 const SVG = `
 <svg class="mask" viewBox="-120 -195 240 335" aria-hidden="true">
   <defs>
-    <radialGradient id="mm-skin" cx="0" cy="-35" r="150" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f7f4ed"/>
-      <stop offset="0.55" stop-color="#dfe5de"/>
-      <stop offset="1" stop-color="#8eaaa2"/>
+    <linearGradient id="mm-skin" x1="0" y1="-121" x2="0" y2="125" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f1850"/>
+      <stop offset="0.3" stop-color="#4f2f7e"/>
+      <stop offset="0.42" stop-color="#65438e"/>
+      <stop offset="0.54" stop-color="#a8d64e"/>
+      <stop offset="0.64" stop-color="#c8f05e"/>
+      <stop offset="0.85" stop-color="#b6e353"/>
+      <stop offset="1" stop-color="#86b83a"/>
+    </linearGradient>
+    <radialGradient id="mm-shade" cx="0" cy="40" r="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0.55" stop-color="#14061f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#14061f" stop-opacity="0.65"/>
     </radialGradient>
+    <linearGradient id="mm-rim" x1="0" y1="-121" x2="0" y2="125" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9b7ad6"/>
+      <stop offset="0.45" stop-color="#5a3c86"/>
+      <stop offset="0.6" stop-color="#b8ec5a"/>
+      <stop offset="1" stop-color="#ecff9a"/>
+    </linearGradient>
     <radialGradient id="mm-iris">
-      <stop offset="0" stop-color="#f4fffc"/>
-      <stop offset="0.35" stop-color="#7cf5d8"/>
-      <stop offset="0.85" stop-color="#1fb894"/>
-      <stop offset="1" stop-color="#0a5a4a"/>
+      <stop offset="0" stop-color="#fbffe6"/>
+      <stop offset="0.35" stop-color="#d6ff7a"/>
+      <stop offset="0.7" stop-color="#8fd23c" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#8fd23c" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="mm-socket">
-      <stop offset="0" stop-color="#2d5c54" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#2d5c54" stop-opacity="0"/>
+      <stop offset="0" stop-color="#14061f" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#14061f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mm-light">
+      <stop offset="0" stop-color="#f4ffb8" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#f4ffb8" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="mm-hollow">
-      <stop offset="0" stop-color="#2d5c54" stop-opacity="0.28"/>
-      <stop offset="1" stop-color="#2d5c54" stop-opacity="0"/>
+      <stop offset="0" stop-color="#2f5212" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2f5212" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="mm-blush">
-      <stop offset="0" stop-color="#f08aa8" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#f08aa8" stop-opacity="0"/>
+      <stop offset="0" stop-color="#fbffb0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#fbffb0" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="mm-lip" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#b3a9b0"/>
-      <stop offset="1" stop-color="#93868f"/>
+      <stop offset="0" stop-color="#5d7f26"/>
+      <stop offset="1" stop-color="#45601b"/>
     </linearGradient>
     <linearGradient id="mm-gold" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#fff3b8"/>
@@ -73,32 +98,32 @@ const SVG = `
     <circle cx="34" cy="-147" r="4" fill="#e9608a"/>
   </g>
   <g class="head">
-    <path d="M0,-130 C67,-130 95,-77 93,-12 C91,53 57,113 0,125 C-57,113 -91,53 -93,-12 C-95,-77 -67,-130 0,-130 Z" fill="url(#mm-skin)"/>
-    <g fill="none" stroke="#5fae9c" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
-      <path d="M0,-110 C-10,-97 -27,-99 -31,-87 C-35,-75 -21,-71 -15,-79"/>
-      <path d="M0,-110 C10,-97 27,-99 31,-87 C35,-75 21,-71 15,-79"/>
-      <path d="M-71,10 C-63,30 -47,30 -45,46 C-43,58 -57,60 -59,52"/>
-      <path d="M71,10 C63,30 47,30 45,46 C43,58 57,60 59,52"/>
+    <path d="${MASK}" fill="url(#mm-skin)"/>
+    <g fill="none" stroke="#3f661b" stroke-width="2.2" stroke-linecap="round">
+      <path d="M-4,-6 C-7,12 -12,24 -11,31"/>
+      <path d="M-11,31 C-5,36 5,36 11,31"/>
     </g>
-    <ellipse cx="-66" cy="50" rx="22" ry="36" fill="url(#mm-hollow)"/>
-    <ellipse cx="66" cy="50" rx="22" ry="36" fill="url(#mm-hollow)"/>
-    <ellipse class="blush" cx="-52" cy="30" rx="17" ry="10" fill="url(#mm-blush)"/>
-    <ellipse class="blush" cx="52" cy="30" rx="17" ry="10" fill="url(#mm-blush)"/>
-    <path d="M-2,-10 C-6,12 -12,26 -10,32 C-4,36 4,36 10,32" stroke="#a7b7b1" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-    <g fill="none" stroke="#8fa8a1" stroke-width="1.6" stroke-linecap="round">
+    <g fill="none" stroke="#4c7420" stroke-width="1.6" stroke-linecap="round">
       <path class="cheek-line"/>
       <path class="cheek-line"/>
     </g>
     ${eye(EYE_X[0], 0)}
     ${eye(EYE_X[1], 1)}
-    <path class="brow" fill="#5f7d76" stroke="#5f7d76" stroke-width="1.5" stroke-linejoin="round"/>
-    <path class="brow" fill="#5f7d76" stroke="#5f7d76" stroke-width="1.5" stroke-linejoin="round"/>
+    <ellipse cx="-38" cy="16" rx="24" ry="12" fill="url(#mm-light)"/>
+    <ellipse cx="38" cy="16" rx="24" ry="12" fill="url(#mm-light)"/>
+    <ellipse cx="-58" cy="60" rx="22" ry="32" transform="rotate(30 -58 60)" fill="url(#mm-hollow)" opacity="0.7"/>
+    <ellipse cx="58" cy="60" rx="22" ry="32" transform="rotate(-30 58 60)" fill="url(#mm-hollow)" opacity="0.7"/>
+    <ellipse class="blush" cx="-48" cy="28" rx="18" ry="10" fill="url(#mm-blush)"/>
+    <ellipse class="blush" cx="48" cy="28" rx="18" ry="10" fill="url(#mm-blush)"/>
+    <path d="${MASK}" fill="url(#mm-shade)" stroke="url(#mm-rim)" stroke-width="1.2" stroke-opacity="0.6"/>
+    <path class="brow" fill="#2a1240" stroke="#2a1240" stroke-width="1.5" stroke-linejoin="round"/>
+    <path class="brow" fill="#2a1240" stroke="#2a1240" stroke-width="1.5" stroke-linejoin="round"/>
     <path class="lip-up" fill="url(#mm-lip)"/>
     <path class="lip-low" fill="url(#mm-lip)"/>
-    <path class="cavity" fill="#071311" stroke="#2c4a44" stroke-width="1.8" stroke-linejoin="round"/>
+    <path class="cavity" fill="#13051a" stroke="#2a0f36" stroke-width="1.8" stroke-linejoin="round"/>
     <g clip-path="url(#mm-mouth)">
-      <path class="teeth" fill="#e6f4ef"/>
-      <ellipse class="tongue" ry="7" fill="#9a6170"/>
+      <path class="teeth" fill="#dfeebd"/>
+      <ellipse class="tongue" ry="7" fill="#6e2f55"/>
     </g>
   </g>
 </svg>`;
@@ -130,13 +155,13 @@ const MOOD_POSE: Record<Mood, Pose> = {
   gentle: pose({ browL: 0.3, browR: 0.3, slantL: 0.7, slantR: 0.7, lidL: 0.25, lidR: 0.25, lowL: 0.25, lowR: 0.25, smile: 0.45, blush: 0.2, tilt: 6 }),
 };
 
-// Smoke speed and brightness for each state.
-const SMOKE: Record<FaceState, { speed: number; alpha: number }> = {
-  asleep: { speed: 0.35, alpha: 0.22 },
-  waking: { speed: 2.2, alpha: 0.9 },
-  listening: { speed: 1, alpha: 0.65 },
-  thinking: { speed: 3, alpha: 0.85 },
-  speaking: { speed: 1.2, alpha: 0.7 },
+// Smoke speed and brightness, and new flames per second, for each state.
+const SMOKE: Record<FaceState, { speed: number; alpha: number; flames: number }> = {
+  asleep: { speed: 0.35, alpha: 0.22, flames: 0 },
+  waking: { speed: 2.2, alpha: 0.9, flames: 120 },
+  listening: { speed: 1, alpha: 0.65, flames: 45 },
+  thinking: { speed: 3, alpha: 0.85, flames: 70 },
+  speaking: { speed: 1.2, alpha: 0.7, flames: 55 },
 };
 const TAU = Math.PI * 2;
 const FRAME_MS = 33; // ~30 fps: the laptop also runs the voice
@@ -157,6 +182,8 @@ function browPath(side: number, raise: number, slant: number): string {
 
 type Puff = { a: number; r: number; y: number; size: number; spin: number; rise: number; sprite: number };
 type Spark = { x: number; y: number; life: number; size: number };
+// x and y are offsets from the screen centre, in units of the short screen side.
+type Flame = { x: number; y: number; drift: number; age: number; life: number; size: number; sprite: number };
 
 function sprite(rgb: string, size = 64): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -207,11 +234,14 @@ export function createMaskFace(root: HTMLElement): Face {
   const cavityClip = one<SVGPathElement>(".cavity-clip");
   const teeth = one<SVGPathElement>(".teeth");
   const tongue = one<SVGEllipseElement>(".tongue");
-  const puffSprites = [sprite("70 230 190"), sprite("40 170 200")];
+  const puffSprites = [sprite("120 70 200"), sprite("80 55 170")];
+  const flameSprites = [sprite("225 255 110"), sprite("140 235 55")];
   const sparkSprite = sprite("255 240 190", 32);
 
   const puffs = Array.from({ length: 36 }, () => newPuff(true));
   let sparks: Spark[] = [];
+  let flames: Flame[] = [];
+  let flamesDue = 0;
   let smoke = SMOKE.asleep;
   let burst = 0;
   let last = performance.now();
@@ -380,6 +410,21 @@ export function createMaskFace(root: HTMLElement): Face {
       const edgeFade = Math.min(1, (1.1 - p.y) * 3, (p.y + 0.15) * 3);
       ctx.globalAlpha = Math.min(1, smoke.alpha * (1 + burst)) * edgeFade * 0.55;
       ctx.drawImage(puffSprites[p.sprite], x - size / 2, y - size / 2, size, size);
+    }
+    // Green flames lick up round the lower half of the mask.
+    flamesDue += smoke.flames * (1 + burst) * dt;
+    for (; flamesDue >= 1; flamesDue--) {
+      const a = Math.PI * (0.05 + Math.random() * 0.9);
+      flames.push({ x: Math.cos(a) * 0.28, y: 0.04 + Math.sin(a) * 0.34, drift: Math.cos(a) * 0.05, age: 0, life: 0.6 + Math.random() * 0.8, size: 0.07 + Math.random() * 0.09, sprite: Math.random() < 0.5 ? 0 : 1 });
+    }
+    flames = flames.filter((fl) => (fl.age += dt) < fl.life);
+    for (const fl of flames) {
+      const k = fl.age / fl.life;
+      fl.y -= dt * (0.12 + 0.1 * k);
+      fl.x += dt * (fl.drift + Math.sin(now / 160 + fl.life * 40) * 0.05);
+      const size = fl.size * m * (1 - k * 0.7);
+      ctx.globalAlpha = Math.sin(Math.PI * k) * 0.85;
+      ctx.drawImage(flameSprites[fl.sprite], w / 2 + fl.x * m - size / 2, h / 2 + fl.y * m - size * 1.2, size, size * 2.4);
     }
     sparks = sparks.filter((s) => (s.life -= dt * 0.8) > 0);
     for (const s of sparks) {

@@ -18,7 +18,7 @@
   width: 70vmin;
   height: 80vmin;
   border-radius: 50%;
-  background: radial-gradient(closest-side, rgb(95 242 208 / 0.16), transparent);
+  background: radial-gradient(closest-side, rgb(150 100 230 / 0.2), transparent);
   transition: opacity 1.4s ease;
 }
 
@@ -47,7 +47,7 @@
 .mirror[data-state="thinking"] .iris { animation: mm-pulse 0.9s ease-in-out infinite alternate; }
 
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
-.mirror.fx-glow .halo { background: radial-gradient(closest-side, rgb(160 255 230 / 0.45), transparent); }
+.mirror.fx-glow .halo { background: radial-gradient(closest-side, rgb(200 255 120 / 0.4), transparent); }
 .mirror.fx-glow .iris { opacity: 1; }
 
 @keyframes mm-float {
