@@ -6,11 +6,28 @@
   background: #000;
 }
 
-/* Glass, smoke, mask and frame share one box and one viewBox, so they line up. */
+/* The page fills the screen; the real mirror frame is round the screen. */
+.mirror .glass,
+.mirror .smoke {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mirror .glass {
+  background: radial-gradient(ellipse at 50% 48%, #160b2b 0%, #0b0518 45%, #050210 75%, #000 100%);
+}
+
+/* The back light and the mask share one box and one viewBox, centred on the screen. The box is
+   taller than the screen; its top and bottom are empty. maskFace.ts reads its height for the smoke. */
 .mirror .stage {
-  position: relative;
-  height: 98vmin;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: min(130vh, 160vw);
   aspect-ratio: 300 / 410;
+  transform: translate(-50%, -50%);
 }
 
 .mirror .stage > * {
@@ -21,14 +38,11 @@
 }
 
 .mirror .glass,
-.mirror .frame,
 .mirror .halo,
-.mirror .rim-glow,
 .mirror .jewel {
   transition: opacity 1.4s ease;
 }
 
-/* Only the mask floats; the frame stays put like a real mirror. */
 .mirror .mask {
   transition: opacity 1.4s ease;
   animation: mm-float 7s ease-in-out infinite;
@@ -45,13 +59,10 @@
 /* maskFace.ts moves the head, eyes, brows and mouth. CSS only fades things in and out. */
 .mirror .iris { opacity: 0.8; transition: opacity 0.4s ease; }
 .mirror .halo { opacity: 0.75; }
-.mirror .rim-glow { opacity: 0.6; }
 
 /* asleep: a faint shape in the dark glass, eyes closed */
 .mirror[data-state="asleep"] .mask { opacity: 0.1; }
 .mirror[data-state="asleep"] .halo { opacity: 0; }
-.mirror[data-state="asleep"] .rim-glow { opacity: 0; }
-.mirror[data-state="asleep"] .frame { opacity: 0.3; }
 .mirror[data-state="asleep"] .glass { opacity: 0.35; }
 
 .mirror[data-state="listening"] .iris,
@@ -62,7 +73,6 @@
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
 .mirror.fx-crown .jewel { opacity: 0; }
 .mirror.fx-glow .halo,
-.mirror.fx-glow .rim-glow,
 .mirror.fx-glow .iris { opacity: 1; }
 .mirror.fx-glow .halo { fill: url(#bg-halo-hot); }
 

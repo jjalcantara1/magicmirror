@@ -2,15 +2,16 @@ import "./maskFace.css";
 import type { Effect, Face, FaceState, Mood } from "./face.ts";
 
 // The Queen's magic mirror, drawn for small children: a theatre mask, purple above and lit
-// yellow-green from below, with a big grin, floating in smoke inside a gold oval frame with gems.
+// yellow-green from below, with a big grin, floating in smoke. The page fills the screen; the
+// real mirror frame is round the screen.
 // Brows, lids, eyes, cheeks, lips and head all move, so the mirror can grin, wink and gasp.
 const f = (x: number) => x.toFixed(1);
 
-// Glass, smoke, mask and frame share this viewBox so they line up; only the mask floats.
+// The mask, its back light and the smoke share these viewBox units, centred on the screen.
 const VIEWBOX = "-150 -205 300 410";
 const VB_H = 410;
-const GLASS = { cy: 8, rx: 118, ry: 166 };
-const FRAME = { rx: 134, ry: 184 };
+// The glass is the whole screen. resize() sets its half width and half height in viewBox units.
+const GLASS = { cy: 0, rx: 118, ry: 166 };
 // The mask is drawn in its own units (about 186 wide, 243 tall) and scaled into the glass.
 const MASK_PLACE = "translate(0 4) scale(0.83)";
 
@@ -244,96 +245,10 @@ const MASK_SVG = `
   </g>
 </svg>`;
 
-// A cut gem: four facets round a flat top, and a glint.
-type GemColours = readonly [string, string, string, string];
-const AMETHYST: GemColours = ["#f0d4ff", "#b06cf0", "#6a2bb5", "#3a1470"];
-const EMERALD: GemColours = ["#e2ffb8", "#7ad65a", "#2f8a32", "#124818"];
-function gem(x: number, y: number, w: number, h: number, c: GemColours): string {
-  const t = 0.42;
-  const quad = (sx: number, sy: number, fill: string) =>
-    `<path d="M0,${sy * h} L${sx * w},0 L${f(sx * w * t)},0 L0,${f(sy * h * t)}Z" fill="${fill}"/>`;
-  return `
-  <g transform="translate(${x} ${y})">
-    <path d="M0,${-h - 5} L${w + 5},0 L0,${h + 5} L${-w - 5},0Z" fill="url(#bf-gold)" stroke="#4a2a06" stroke-width="1.4" stroke-linejoin="round"/>
-    <path d="M0,${-h} L${w},0 L0,${h} L${-w},0Z" fill="${c[3]}"/>
-    ${quad(-1, -1, c[0])}${quad(1, -1, c[1])}${quad(-1, 1, c[1])}${quad(1, 1, c[2])}
-    <path d="M0,${f(-h * t)} L${f(w * t)},0 L0,${f(h * t)} L${f(-w * t)},0Z" fill="${c[1]}"/>
-    <path d="M0,${f(-h * t)} L${f(-w * t)},0 L0,0Z" fill="${c[0]}" opacity="0.7"/>
-    <path d="M${f(-w * 0.3)},${f(-h * 0.62)} l1.6,3.4 3.4,1.6 -3.4,1.6 -1.6,3.4 -1.6,-3.4 -3.4,-1.6 3.4,-1.6Z" fill="#fff"/>
-  </g>`;
-}
-
-// Gold scrollwork, drawn as a dark outline, gold, and a thin highlight.
-const SCROLLS = [
-  "M-17,-174 C-30,-192 -56,-190 -62,-175 C-66,-164 -55,-157 -48,-163 C-43,-168 -48,-175 -53,-171",
-  "M-138,-12 C-150,-22 -151,-38 -142,-44 C-135,-48 -128,-41 -133,-35",
-  "M-138,28 C-150,38 -151,54 -142,60 C-135,64 -128,57 -133,51",
-  "M-12,191 C-23,202 -43,199 -45,188 C-46,180 -38,177 -34,182",
-];
-const scrollPaths = (stroke: string, width: number, extra = "") =>
-  SCROLLS.map((d) => `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" ${extra}/>`).join("");
-
-// A round gold stud holding a small gem.
-const stud = (x: number, y: number) => `
-      <circle cx="${x}" cy="${y}" r="7" fill="url(#bf-gold)" stroke="#3d2304" stroke-width="1.4"/>
-      <circle cx="${x}" cy="${y}" r="3.8" fill="${AMETHYST[2]}"/>
-      <circle cx="${x - 1}" cy="${y - 1}" r="2.2" fill="${AMETHYST[1]}"/>
-      <circle cx="${x - 1.4}" cy="${y - 1.6}" r="0.9" fill="#fff"/>`;
-
-const ring = (r: number, stroke: string, width: number, extra = "") =>
-  `<ellipse cx="0" cy="${GLASS.cy}" rx="${f(FRAME.rx - r)}" ry="${f(FRAME.ry - r)}" fill="none" stroke="${stroke}" stroke-width="${width}" ${extra}/>`;
-const glassRing = (inset: number, stroke: string, width: number, opacity: number) =>
-  `<ellipse cx="0" cy="${GLASS.cy}" rx="${GLASS.rx - inset}" ry="${GLASS.ry - inset}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-opacity="${opacity}"/>`;
-
-// The frame sits on top of the smoke and the mask. Its inner shadow and violet glow only touch the
-// edge of the glass, so they never cover the face.
-const FRAME_SVG = `
-<svg class="frame" viewBox="${VIEWBOX}" aria-hidden="true">
+// A soft back light behind the mask.
+const BACKLIGHT_SVG = `
+<svg class="backlight" viewBox="${VIEWBOX}" aria-hidden="true">
   <defs>
-    <linearGradient id="bf-gold" x1="0" y1="0" x2="1" y2="1">${GOLD_STOPS}
-    </linearGradient>
-    <linearGradient id="bf-gold-b" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop offset="0" stop-color="#fff2c4"/>
-      <stop offset="0.3" stop-color="#f2c45c"/>
-      <stop offset="0.5" stop-color="#c08328"/>
-      <stop offset="0.7" stop-color="#fbd77e"/>
-      <stop offset="1" stop-color="#9a6018"/>
-    </linearGradient>
-    <g id="bf-half">
-      ${scrollPaths("#3d2304", 6.5)}
-      ${scrollPaths("url(#bf-gold-b)", 3.8)}
-      ${scrollPaths("#fff3c4", 1.1, 'opacity="0.7"')}
-      ${gem(-FRAME.rx, GLASS.cy, 10, 15, EMERALD)}
-      ${stud(-84, -123)}${stud(-84, 139)}
-    </g>
-  </defs>
-  ${glassRing(7, "#000", 14, 0.4)}
-  <g class="rim-glow">
-    ${glassRing(9, "#9a6cff", 14, 0.12)}
-    ${glassRing(3, "#b58cff", 5, 0.4)}
-  </g>
-  ${ring(8, "url(#bf-gold)", 17)}
-  ${ring(6, "url(#bf-gold-b)", 7)}
-  ${ring(4.5, "#fff4c8", 1.4, 'opacity="0.75"')}
-  ${ring(12.5, "#6b430e", 2, 'stroke-dasharray="1.5 4"')}
-  ${ring(0, "#3d2304", 1.6)}
-  ${ring(16, "#3d2304", 2.2)}
-  ${ring(17.6, "#9c6ae6", 2.2)}
-  <use href="#bf-half"/>
-  <use href="#bf-half" transform="scale(-1 1)"/>
-  ${gem(0, -180, 14, 18, AMETHYST)}
-  ${gem(0, 189, 8, 9, AMETHYST)}
-</svg>`;
-
-const GLASS_SVG = `
-<svg class="glass" viewBox="${VIEWBOX}" aria-hidden="true">
-  <defs>
-    <radialGradient id="bg-glass">
-      <stop offset="0" stop-color="#140a26"/>
-      <stop offset="0.7" stop-color="#080310"/>
-      <stop offset="0.92" stop-color="#110826"/>
-      <stop offset="1" stop-color="#2a1650"/>
-    </radialGradient>
     <radialGradient id="bg-halo">
       <stop offset="0.5" stop-color="#a888f0" stop-opacity="0.45"/>
       <stop offset="0.75" stop-color="#8460d0" stop-opacity="0.18"/>
@@ -344,13 +259,7 @@ const GLASS_SVG = `
       <stop offset="0.72" stop-color="#bdf072" stop-opacity="0.38"/>
       <stop offset="1" stop-color="#bdf072" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="bg-sheen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
   </defs>
-  <ellipse cx="0" cy="${GLASS.cy}" rx="${GLASS.rx}" ry="${GLASS.ry}" fill="url(#bg-glass)"/>
-  <path d="M-108,-60 C-104,-110 -72,-146 -26,-156 C-70,-136 -96,-104 -100,-52Z" fill="url(#bg-sheen)"/>
   <ellipse class="halo" cx="0" cy="4" rx="112" ry="148" fill="url(#bg-halo)"/>
 </svg>`;
 
@@ -494,7 +403,7 @@ function swirlSprite(rgb: string, edge: string, size = 160): HTMLCanvasElement {
 function newPuff(anywhere: boolean): Puff {
   return {
     a: Math.random() * TAU,
-    r: 45 + Math.random() * 70,
+    r: 0.38 + Math.random() * 0.6, // part of the glass half width
     y: anywhere ? Math.random() : 1.15,
     size: 55 + Math.random() * 65,
     spin: (Math.random() < 0.5 ? -1 : 1) * (0.12 + Math.random() * 0.22),
@@ -520,8 +429,9 @@ export function createMaskFace(root: HTMLElement): Face {
   root.classList.add("mirror");
   // Set before the first layout, so the mask starts faded instead of fading out from full.
   root.dataset.state = "asleep";
-  root.innerHTML = `<div class="stage">${GLASS_SVG}<canvas class="smoke"></canvas>${MASK_SVG}${FRAME_SVG}</div>`;
+  root.innerHTML = `<div class="glass"></div><canvas class="smoke"></canvas><div class="stage">${BACKLIGHT_SVG}${MASK_SVG}</div>`;
   const canvas = root.querySelector<HTMLCanvasElement>(".smoke")!;
+  const stage = root.querySelector<HTMLDivElement>(".stage")!;
   const ctx = canvas.getContext("2d")!;
   const flash = document.querySelector<HTMLDivElement>("#flash")!;
   const one = <T extends Element>(cls: string) => root.querySelector<T>(cls)!;
@@ -553,8 +463,8 @@ export function createMaskFace(root: HTMLElement): Face {
     swirlSprite("185 120 235", "235 205 255"),
   ];
   // Curls drift round the mask, mostly beside and below it.
-  const swirls: Swirl[] = Array.from({ length: 7 }, (_, i) => ({
-    a: (i / 7) * TAU + Math.random() * 0.5,
+  const swirls: Swirl[] = Array.from({ length: 10 }, (_, i) => ({
+    a: (i / 10) * TAU + Math.random() * 0.5,
     r: 0.8 + Math.random() * 0.14,
     spin: (i % 2 ? 1 : -1) * (0.05 + Math.random() * 0.05),
     turn: Math.random() * TAU,
@@ -562,8 +472,8 @@ export function createMaskFace(root: HTMLElement): Face {
     sprite: i % 3,
   }));
 
-  const puffs = Array.from({ length: 24 }, () => newPuff(true));
-  const twinkles = Array.from({ length: 16 }, () => {
+  const puffs = Array.from({ length: 32 }, () => newPuff(true));
+  const twinkles = Array.from({ length: 22 }, () => {
     const t = newTwinkle();
     t.age = Math.random() * t.life;
     return t;
@@ -737,14 +647,17 @@ export function createMaskFace(root: HTMLElement): Face {
     }
   }
 
-  // The canvas covers the stage box at half resolution; it draws in viewBox units.
+  // The canvas covers the screen at half resolution. It draws in the stage's viewBox units, from
+  // the centre of the screen, where the stage is.
   let w = 1;
   let h = 1;
   let u = 1;
   function resize() {
     h = Math.max(1, Math.round(canvas.clientHeight / 2));
     w = Math.max(1, Math.round(canvas.clientWidth / 2));
-    u = h / VB_H;
+    u = Math.max(1, stage.clientHeight / 2) / VB_H;
+    GLASS.rx = w / 2 / u;
+    GLASS.ry = h / 2 / u;
     Object.assign(canvas, { width: w, height: h });
   }
   resize();
@@ -755,10 +668,6 @@ export function createMaskFace(root: HTMLElement): Face {
     const Y = (y: number) => h / 2 + y * u;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
-    // Smoke stays inside the glass; the frame covers the hard edge.
-    ctx.beginPath();
-    ctx.ellipse(X(0), Y(GLASS.cy), GLASS.rx * u, GLASS.ry * u, 0, 0, TAU);
-    ctx.clip();
     ctx.globalCompositeOperation = "lighter";
     burst = Math.max(0, burst - dt * 0.6);
     const speed = smoke.speed * (1 + burst * 2);
@@ -767,7 +676,7 @@ export function createMaskFace(root: HTMLElement): Face {
       p.a += p.spin * dt * speed;
       p.y -= p.rise * dt * speed;
       if (p.y < -0.15) Object.assign(p, newPuff(false));
-      const x = Math.cos(p.a) * p.r;
+      const x = Math.cos(p.a) * p.r * GLASS.rx;
       const y = GLASS.cy + Math.sin(p.a) * p.r * 0.45 + (p.y - 0.5) * GLASS.ry * 2;
       const size = p.size * u * (1 + burst);
       const edgeFade = Math.min(1, (1.15 - p.y) * 3, (p.y + 0.15) * 3);
