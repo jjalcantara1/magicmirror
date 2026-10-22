@@ -1,5 +1,5 @@
 export type Turn = { role: "user" | "assistant"; content: string };
-export type Chunk = { text: string; effects: string[]; alert: boolean };
+export type Chunk = { text: string; effects: string[]; moods: string[]; alert: boolean };
 
 const MAX_TURNS = 20; // about 10 exchanges: small, fast, and inside the free-tier token limits
 const MAX_WORDS = 40; // small local models ramble; stop at the last sentence that fits
@@ -18,7 +18,7 @@ export function createConversation() {
   };
 }
 
-const TAG = /\[\[\s*(?:effect\s*:\s*(\w+)|(alert))\s*\]\]/gi;
+const TAG = /\[\[\s*(?:effect\s*:\s*(\w+)|mood\s*:\s*(\w+)|(alert))\s*\]\]/gi;
 // Local models invent tag shapes like "[Fairytale:effect:sparkle]", so drop any bracketed text.
 const ANY_BRACKET = /\[\[?[^\]]*\]?\]/g;
 const STAGE_DIRECTION = /\*[^*]*\*/g;
@@ -26,13 +26,15 @@ const EMOJI = /\p{Extended_Pictographic}/gu;
 
 export function parseTags(raw: string): Chunk {
   const effects: string[] = [];
+  const moods: string[] = [];
   let alert = false;
   for (const m of raw.matchAll(TAG)) {
     if (m[1]) effects.push(m[1].toLowerCase());
-    if (m[2]) alert = true;
+    if (m[2]) moods.push(m[2].toLowerCase());
+    if (m[3]) alert = true;
   }
   const text = raw.replace(ANY_BRACKET, " ").replace(STAGE_DIRECTION, " ").replace(EMOJI, "").replace(/\s+/g, " ").trim();
-  return { text, effects, alert };
+  return { text, effects, moods, alert };
 }
 
 const countWords = (s: string) => s.match(/\S+/g)?.length ?? 0;

@@ -29,28 +29,22 @@
   animation: mm-float 7s ease-in-out infinite;
 }
 
-.mirror .head,
-.mirror .eye .open,
 .mirror .crown {
   transform-box: fill-box;
   transform-origin: center;
 }
 
-.mirror .eye .open { transition: transform 0.5s ease; }
-.mirror .eye .lid { opacity: 0; transition: opacity 0.5s ease; }
+/* maskFace.ts moves the head, eyes, brows and mouth. CSS only fades things in and out. */
 .mirror .iris { opacity: 0.7; transition: opacity 0.4s ease; }
 .mirror .crown { opacity: 0; transform: translateY(14px) scale(0.9); transition: opacity 0.8s ease, transform 0.8s ease; }
 
 /* asleep: a faint shape in the dark glass, eyes closed */
 .mirror[data-state="asleep"] .mask { opacity: 0.1; }
 .mirror[data-state="asleep"] .halo { opacity: 0; }
-.mirror[data-state="asleep"] .eye .open { transform: scaleY(0.06); }
-.mirror[data-state="asleep"] .eye .lid { opacity: 1; }
 
 .mirror[data-state="listening"] .iris,
 .mirror[data-state="speaking"] .iris { opacity: 1; }
 .mirror[data-state="thinking"] .iris { animation: mm-pulse 0.9s ease-in-out infinite alternate; }
-.mirror[data-state="speaking"] .head { animation: mm-bob 0.9s ease-in-out infinite alternate; }
 
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
 .mirror.fx-glow .halo { background: radial-gradient(closest-side, rgb(160 255 230 / 0.45), transparent); }
@@ -58,9 +52,6 @@
 
 @keyframes mm-float {
   50% { transform: translateY(-1.2vmin); }
-}
-@keyframes mm-bob {
-  to { transform: translateY(-1.5px) rotate(0.6deg); }
 }
 @keyframes mm-pulse {
   from { opacity: 0.45; }
