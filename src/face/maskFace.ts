@@ -96,26 +96,6 @@ const eye = (cx: number, i: number) => `
       <path class="crease" fill="none" stroke="#55459a" stroke-width="3" stroke-linecap="round" opacity="0.35"/>
       <path class="lash" fill="#1c0f30"/>`;
 
-const GOLD_STOPS = `
-      <stop offset="0" stop-color="#ffeeb0"/>
-      <stop offset="0.2" stop-color="#e3a63e"/>
-      <stop offset="0.4" stop-color="#935a14"/>
-      <stop offset="0.56" stop-color="#f3c862"/>
-      <stop offset="0.78" stop-color="#b07220"/>
-      <stop offset="1" stop-color="#62390b"/>`;
-
-// The crown effect: a gold king's crown sitting on the dipped top of the mask.
-const crownPoint = (x: number, tip: number, w: number) => `
-        <path d="M${x - w},-95 L${x},${tip} L${x + w},-95Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.3" stroke-linejoin="round"/>
-        <circle cx="${x}" cy="${tip - 3}" r="3.6" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.1"/>`;
-const CROWN = `
-        ${crownPoint(-54, -121, 11)}${crownPoint(-27, -131, 11)}${crownPoint(0, -141, 12)}${crownPoint(27, -131, 11)}${crownPoint(54, -121, 11)}
-        <path d="M-70,-101 C-40,-90 40,-90 70,-101 L68,-90 C40,-79 -40,-79 -68,-90Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.4" stroke-linejoin="round"/>
-        <path d="M0,-96 L6,-89 L0,-82 L-6,-89Z" fill="#6fdc5e" stroke="#155a1c" stroke-width="1" stroke-linejoin="round"/>
-        <path d="M0,-94 L-4,-89 L0,-89Z" fill="#d4ffb8"/>
-        <circle cx="-34" cy="-88" r="3.4" fill="#9a6cf0" stroke="#3a1470" stroke-width="1"/>
-        <circle cx="34" cy="-88" r="3.4" fill="#9a6cf0" stroke="#3a1470" stroke-width="1"/>`;
-
 const MASK_SVG = `
 <svg class="mask" viewBox="${VIEWBOX}" aria-hidden="true">
   <defs>
@@ -199,8 +179,6 @@ const MASK_SVG = `
       <stop offset="0" stop-color="#ffffff"/>
       <stop offset="1" stop-color="#e4def0"/>
     </linearGradient>
-    <linearGradient id="bm-gold" x1="0" y1="0" x2="1" y2="1">${GOLD_STOPS}
-    </linearGradient>
     <clipPath id="bm-clip"><path d="${MASK}"/></clipPath>
     <clipPath id="bm-eye-0"><path d="${opening(EYE_X[0], LID_TOP, LID_BOTTOM)}"/></clipPath>
     <clipPath id="bm-eye-1"><path d="${opening(EYE_X[1], LID_TOP, LID_BOTTOM)}"/></clipPath>
@@ -250,7 +228,6 @@ const MASK_SVG = `
         <ellipse class="tongue" ry="9" fill="#d0607e"/>
         <path class="teeth" fill="url(#bm-teeth)"/>
       </g>
-      <g class="crown">${CROWN}</g>
       <g class="twink" opacity="0">
         <circle r="10" fill="url(#bm-light)"/>
         <path d="M0,-13 L2.2,-2.2 13,0 2.2,2.2 0,13 -2.2,2.2 -13,0 -2.2,-2.2Z" fill="#fffbe2"/>
@@ -1500,10 +1477,6 @@ export function createMaskFace(root: HTMLElement): Face {
           break;
         case "glow":
           flag("fx-glow", 2500);
-          break;
-        case "crown":
-          flag("fx-crown", 5000);
-          addSparks(25, -110, 70, 30);
           break;
       }
     },
