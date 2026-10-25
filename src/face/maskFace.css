@@ -38,8 +38,7 @@
 }
 
 .mirror .glass,
-.mirror .halo,
-.mirror .jewel {
+.mirror .halo {
   transition: opacity 1.4s ease;
 }
 
@@ -79,9 +78,7 @@
 .mirror[data-mood="excited"] .g-spark,
 .mirror[data-mood="love"] .g-spark { display: none; }
 
-/* The tiara has its own gem, so the small forehead gem steps aside. */
 .mirror.fx-crown .crown { opacity: 1; transform: none; }
-.mirror.fx-crown .jewel { opacity: 0; }
 .mirror.fx-glow .halo,
 .mirror.fx-glow .iris { opacity: 1; }
 .mirror.fx-glow .halo { fill: url(#bg-halo-hot); }

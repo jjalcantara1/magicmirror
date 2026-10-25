@@ -22,11 +22,11 @@ const LID_TOP = -30; // curve height of the upper edge of an open eye
 const LID_BOTTOM = 12; // curve height of the lower edge of an open eye
 const MOUTH_Y = 66;
 
-// Concave top with corners pointing up and out, high cheekbones, tapering jaw, rounded chin.
+// Concave top with corners pointing up and out, high cheekbones, a broad jaw and a broad, rounded chin.
 const MASK =
   "M-93,-120 C-62,-101 -31,-96 0,-96 C31,-96 62,-101 93,-120 " +
-  "C92,-96 84,-56 82,-34 C82,-24 86,-18 85,-6 C84,12 66,50 56,75 C42,100 24,122 0,123 " +
-  "C-24,122 -42,100 -56,75 C-66,50 -84,12 -85,-6 C-86,-18 -82,-24 -82,-34 C-84,-56 -92,-96 -93,-120Z";
+  "C92,-96 84,-56 82,-34 C82,-24 86,-18 86,-6 C86,14 74,52 64,78 C52,104 30,125 0,126 " +
+  "C-30,125 -52,104 -64,78 C-74,52 -86,14 -86,-6 C-86,-18 -82,-24 -82,-34 C-84,-56 -92,-96 -93,-120Z";
 // The dark inside edge of the mask, seen along the dipped top.
 const TOP_RIM = "M-93,-120 C-62,-101 -31,-96 0,-96 C31,-96 62,-101 93,-120 C62,-97 31,-90 0,-90 C-31,-90 -62,-97 -93,-120Z";
 // Purple runs down from the forehead between the brows and narrows to a rounded point just above
@@ -41,23 +41,22 @@ const opening = (cx: number, up: number, down: number) =>
 // A lid covers the eye from its edge to a little past the open eye's edge, so no dark fringe shows.
 const lid = (cx: number, h: number, edge: number) =>
   `${curve(cx, h)} L${cx + EYE_W + 2},${EYE_Y} C${cx + 12},${f(EYE_Y + edge)} ${cx - 12},${f(EYE_Y + edge)} ${cx - EYE_W - 2},${EYE_Y}Z`;
-// Purple ring round the eye, strongest below and at the outer corner. The open eye is cut out of it.
+// Purple ring round the eye, as on the mask in the film. The open eye is cut out of it.
 // It rides up with the lower lid, so a smiling eye has a crescent under it, not a pool.
 const socketPath = (cx: number, side: number, lift: number) => {
-  const x = cx + side * 6;
+  const x = cx + side * 2;
   const y = EYE_Y - 2 + lift;
   return `M${x - 36},${y} A36,25 0 1,0 ${x + 36},${y} A36,25 0 1,0 ${x - 36},${y}Z`;
 };
-// A thick dark upper lid, thin at the ends, with a flick at the outer corner. The flick shrinks as
-// the eye closes, so a closed or smiling eye has no kink at the corner.
-function lashPath(cx: number, side: number, up: number, open: number): string {
+// A thick dark upper lid, thin at the ends.
+function lashPath(cx: number, side: number, up: number): string {
   const ix = cx - side * EYE_W;
   const ox = cx + side * EYE_W;
   const a = cx - side * 12;
   const b = cx + side * 12;
   return (
     `M${ix},${EYE_Y} C${a},${f(EYE_Y + up + 1.5)} ${b},${f(EYE_Y + up + 1.5)} ${ox},${EYE_Y} ` +
-    `L${f(ox + side * (1 + 8 * open))},${f(EYE_Y - 1 - 6 * open)} C${b + side * 2},${f(EYE_Y + up - 7)} ${a},${f(EYE_Y + up - 5)} ${ix},${EYE_Y}Z`
+    `L${f(ox + side)},${f(EYE_Y - 1)} C${b + side * 2},${f(EYE_Y + up - 7)} ${a},${f(EYE_Y + up - 5)} ${ix},${EYE_Y}Z`
   );
 }
 
@@ -85,7 +84,7 @@ const eye = (cx: number, i: number) => `
           </g>
           <path class="g-star" d="${starPath(5, 13, 5.4)}" fill="#fff4b8" stroke="#ffc94a" stroke-width="1" stroke-linejoin="round"/>
           <g class="g-heart">
-            <path d="${HEART}" fill="#ff6fa8" stroke="#ffd0e2" stroke-width="0.8"/>
+            <path d="${HEART}" fill="#ffb84a" stroke="#ffe9a8" stroke-width="0.8"/>
             <ellipse cx="-4.6" cy="-4.6" rx="2" ry="1.3" fill="#fff" opacity="0.9"/>
           </g>
         </g>
@@ -105,21 +104,17 @@ const GOLD_STOPS = `
       <stop offset="0.78" stop-color="#b07220"/>
       <stop offset="1" stop-color="#62390b"/>`;
 
-// The crown effect: a gold filigree tiara with gems, sitting on the dipped top of the mask.
-const tiaraSide = (s: number) => `
-        <path d="M${s * 16},-100 C${s * 24},-118 ${s * 46},-118 ${s * 46},-104 C${s * 46},-96 ${s * 37},-95 ${s * 36},-101" fill="none" stroke="#4a2c06" stroke-width="5.5" stroke-linecap="round"/>
-        <path d="M${s * 16},-100 C${s * 24},-118 ${s * 46},-118 ${s * 46},-104 C${s * 46},-96 ${s * 37},-95 ${s * 36},-101" fill="none" stroke="url(#bm-gold)" stroke-width="3" stroke-linecap="round"/>
-        <path d="M${s * 54},-97 L${s * 58},-120 L${s * 62},-99Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.3" stroke-linejoin="round"/>
-        <circle cx="${s * 58}" cy="-123" r="4" fill="#ff8ab4" stroke="#7a2048" stroke-width="1"/>
-        <circle cx="${s * 31}" cy="-113" r="3.2" fill="#ff8ab4" stroke="#7a2048" stroke-width="1"/>`;
-const TIARA = `
-        <path d="M-70,-101 C-40,-90 40,-90 70,-101 L68,-94 C40,-83 -40,-83 -68,-94Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.4" stroke-linejoin="round"/>
-        ${tiaraSide(-1)}${tiaraSide(1)}
-        <path d="M-15,-90 C-17,-108 -7,-122 0,-146 C7,-122 17,-108 15,-90Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.4" stroke-linejoin="round"/>
-        <path d="M0,-124 L8,-108 L0,-92 L-8,-108Z" fill="#6fdc5e" stroke="#155a1c" stroke-width="1.2" stroke-linejoin="round"/>
-        <path d="M0,-124 L-8,-108 L0,-108Z" fill="#d4ffb8"/>
-        <circle cx="0" cy="-149" r="4" fill="#ff8ab4" stroke="#7a2048" stroke-width="1"/>
-        <circle cx="-2.5" cy="-114" r="1.6" fill="#fff"/>`;
+// The crown effect: a gold king's crown sitting on the dipped top of the mask.
+const crownPoint = (x: number, tip: number, w: number) => `
+        <path d="M${x - w},-95 L${x},${tip} L${x + w},-95Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.3" stroke-linejoin="round"/>
+        <circle cx="${x}" cy="${tip - 3}" r="3.6" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.1"/>`;
+const CROWN = `
+        ${crownPoint(-54, -121, 11)}${crownPoint(-27, -131, 11)}${crownPoint(0, -141, 12)}${crownPoint(27, -131, 11)}${crownPoint(54, -121, 11)}
+        <path d="M-70,-101 C-40,-90 40,-90 70,-101 L68,-90 C40,-79 -40,-79 -68,-90Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M0,-96 L6,-89 L0,-82 L-6,-89Z" fill="#6fdc5e" stroke="#155a1c" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M0,-94 L-4,-89 L0,-89Z" fill="#d4ffb8"/>
+        <circle cx="-34" cy="-88" r="3.4" fill="#9a6cf0" stroke="#3a1470" stroke-width="1"/>
+        <circle cx="34" cy="-88" r="3.4" fill="#9a6cf0" stroke="#3a1470" stroke-width="1"/>`;
 
 const MASK_SVG = `
 <svg class="mask" viewBox="${VIEWBOX}" aria-hidden="true">
@@ -168,8 +163,8 @@ const MASK_SVG = `
       <stop offset="1" stop-color="#55601a" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="bm-blush">
-      <stop offset="0" stop-color="#ff86a6" stop-opacity="0.8"/>
-      <stop offset="1" stop-color="#ff86a6" stop-opacity="0"/>
+      <stop offset="0" stop-color="#ffb55c" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffb55c" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="bm-hole" cx="0.5" cy="0.6" r="0.6">
       <stop offset="0" stop-color="#34205e"/>
@@ -193,12 +188,12 @@ const MASK_SVG = `
       <stop offset="1" stop-color="#f4f8c0"/>
     </linearGradient>
     <linearGradient id="bm-lip-up" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#b8707f"/>
-      <stop offset="1" stop-color="#8a4a62"/>
+      <stop offset="0" stop-color="#9a8656"/>
+      <stop offset="1" stop-color="#73653a"/>
     </linearGradient>
     <linearGradient id="bm-lip-low" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#9a5670"/>
-      <stop offset="1" stop-color="#c88392"/>
+      <stop offset="0" stop-color="#857548"/>
+      <stop offset="1" stop-color="#a99a5e"/>
     </linearGradient>
     <linearGradient id="bm-teeth" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
@@ -248,11 +243,6 @@ const MASK_SVG = `
       <path class="cheek-line" fill="none" stroke="#7d8a2e" stroke-width="2.2" stroke-linecap="round"/>
       <path d="${TOP_RIM}" fill="#1b1335"/>
       <path d="${MASK}" fill="none" stroke="url(#bm-rim)" stroke-width="1" stroke-opacity="0.45"/>
-      <g class="jewel">
-        <path d="M0,-90 L6,-80 L0,-70 L-6,-80Z" fill="url(#bm-gold)" stroke="#4a2c06" stroke-width="1"/>
-        <path d="M0,-87 L4,-80 L0,-73 L-4,-80Z" fill="#5fd06a"/>
-        <path d="M0,-87 L-4,-80 L0,-80Z" fill="#d4ffb8"/>
-      </g>
       <path class="lip-up" fill="url(#bm-lip-up)"/>
       <path class="lip-low" fill="url(#bm-lip-low)"/>
       <path class="cavity" fill="#1e0818" stroke="#3a1230" stroke-width="1.6" stroke-linejoin="round"/>
@@ -260,7 +250,7 @@ const MASK_SVG = `
         <ellipse class="tongue" ry="9" fill="#d0607e"/>
         <path class="teeth" fill="url(#bm-teeth)"/>
       </g>
-      <g class="crown">${TIARA}</g>
+      <g class="crown">${CROWN}</g>
       <g class="twink" opacity="0">
         <circle r="10" fill="url(#bm-light)"/>
         <path d="M0,-13 L2.2,-2.2 13,0 2.2,2.2 0,13 -2.2,2.2 -13,0 -2.2,-2.2Z" fill="#fffbe2"/>
@@ -779,9 +769,9 @@ function arch(side: number, raise: number, slant: number) {
   const up = raise * 15;
   // Slant tips the whole arch, so a cheeky or a kind brow reads from across the room.
   const iy = -46 - up - slant * 15;
-  const cy1 = -76 - up - slant * 12;
-  const cy2 = -76 - up + slant * 4;
-  const oy = -29 - up * 0.6 + slant * 6;
+  const cy1 = -73 - up - slant * 12;
+  const cy2 = -73 - up + slant * 4;
+  const oy = -32 - up * 0.6 + slant * 6;
   const ix = side * 14;
   const ox = side * 92;
   const a = `M${ix},${f(iy)} C${side * 32},${f(cy1)} ${side * 86},${f(cy2)} ${ox},${f(oy)}`;
@@ -795,7 +785,7 @@ function browCap(side: number, raise: number, slant: number): string {
 
 function browLine(side: number, raise: number, slant: number): string {
   const { a, ix, iy, cy1, cy2, ox, oy } = arch(side, raise, slant);
-  return `${a} L${ox},${f(oy - 4)} C${side * 86},${f(cy2 - 9)} ${side * 32},${f(cy1 - 9)} ${ix},${f(iy)}Z`;
+  return `${a} L${ox},${f(oy - 5)} C${side * 86},${f(cy2 - 13)} ${side * 32},${f(cy1 - 13)} ${ix},${f(iy - 7)}Z`;
 }
 
 type Puff = { a: number; r: number; y: number; size: number; spin: number; rise: number; sprite: number };
@@ -1259,7 +1249,7 @@ export function createMaskFace(root: HTMLElement): Face {
       const m = (up + down) / 2;
       sockets[i].setAttribute("d", `${socketPath(cx, side, (Math.min(down, LID_BOTTOM) - LID_BOTTOM) * 0.35)} ${opening(cx, Math.min(up + 1.2, m), Math.max(down - 1.2, m))}`);
       sockets[i].setAttribute("opacity", f(Math.min(1, 0.15 + 1.6 * open)));
-      lashes[i].setAttribute("d", lashPath(cx, side, up, open));
+      lashes[i].setAttribute("d", lashPath(cx, side, up));
       lidLines[i].setAttribute("d", curve(cx, down));
       creases[i].setAttribute("d", curve(cx, up - 7));
       // The spark rides up with the lower lid, so a smiling eye shows all of it, not half.
@@ -1308,10 +1298,10 @@ export function createMaskFace(root: HTMLElement): Face {
     const hole = `M${L} ${upperInner} ${lowerInnerBack}Z`;
     lipUp.setAttribute(
       "d",
-      `M${L} C${f(dx - w * 0.6)},${f(upY - 9)} ${f(dx - 8)},${f(upY - 11)} ${f(dx)},${f(upY - 8)} ` +
-        `C${f(dx + 8)},${f(upY - 11)} ${f(dx + w * 0.6)},${f(upY - 9)} ${R} C${c2},${f(upY)} ${c1},${f(upY)} ${L}Z`,
+      `M${L} C${f(dx - w * 0.6)},${f(upY - 6.5)} ${f(dx - 8)},${f(upY - 7)} ${f(dx)},${f(upY - 6)} ` +
+        `C${f(dx + 8)},${f(upY - 7)} ${f(dx + w * 0.6)},${f(upY - 6.5)} ${R} C${c2},${f(upY)} ${c1},${f(upY)} ${L}Z`,
     );
-    lipLow.setAttribute("d", `M${L} C${c1},${f(loY + 11)} ${c2},${f(loY + 11)} ${R} ${lowerInnerBack}Z`);
+    lipLow.setAttribute("d", `M${L} C${c1},${f(loY + 8)} ${c2},${f(loY + 8)} ${R} ${lowerInnerBack}Z`);
     cavity.setAttribute("d", hole);
     cavityClip.setAttribute("d", hole);
     const tooth = 11 - round * 5 + grin * 0.2;
