@@ -21,7 +21,7 @@ const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tt
 // Groq audio for lines said before, like the opening every visit starts with: those then start at
 // once and use none of Groq's daily requests.
 const said = new Map<string, Audio>();
-const SAID_MAX = 10;
+const SAID_MAX = 24; // the opening and the C and H key lines all fit, with room for more
 const WASM_PATHS = {
   // The server serves the onnxruntime-web version that this bundle imports.
   onnxWasm: "/ort/",

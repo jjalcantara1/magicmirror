@@ -1,4 +1,4 @@
-type Handlers = { wake(): void; reset(): void; nextVoice(): void };
+type Handlers = { wake(): void; reset(): void; nextVoice(): void; candy(): void; halloween(): void };
 type Status = {
   llm: { target: string; requests: number; tokens: number; remainingRequests?: number; coolingDownSec: number; lastError?: string }[];
   stt: { target: string; requestsToday: number };
@@ -9,7 +9,7 @@ type Status = {
 export function createOperator(handlers: Handlers) {
   const panel = document.querySelector<HTMLPreElement>("#debug")!;
   const alertDot = document.querySelector<HTMLDivElement>("#alert")!;
-  const fields = new Map<string, string>();
+  const fields = new Map<string, string>([["keys", "G wake · C treat · H happy halloween · R sleep · V next voice · D this panel"]]);
   let transcript: string[] = [];
   let status = "";
   let scheduled = false;
@@ -62,6 +62,12 @@ export function createOperator(handlers: Handlers) {
         break;
       case "v":
         handlers.nextVoice();
+        break;
+      case "c":
+        handlers.candy();
+        break;
+      case "h":
+        handlers.halloween();
         break;
       case "d":
         panel.hidden = !panel.hidden;

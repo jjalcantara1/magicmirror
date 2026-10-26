@@ -15,6 +15,35 @@ type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenM
 const OPENING = "Mirror, mirror, on the wall... who is the fairest of them all? Step closer, and let the magic glass decide!";
 // A stage note before it, so the chat history still starts with the visitor.
 const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
+// Lines for the operator's keys: C grants a treat, H wishes Happy Halloween. Scripted, so they start
+// at once and need no AI; the note tells the AI what happened.
+const CUES = {
+  candy: {
+    mood: "excited",
+    effect: "sparkle",
+    note: "(The mirror grants the visitor a treat.)",
+    lines: [
+      "The glass has spoken: take thy treat!",
+      "Ka-BOOM! A treat for the bravest visitor of all!",
+      "Abraca-PUMPKIN! Your treat awaits. Go on, take it!",
+      "Hee hee! You have earned a treat. Take it, quick!",
+      "By my golden frame, a treat for you!",
+    ],
+  },
+  halloween: {
+    mood: "happy",
+    effect: "glow",
+    note: "(The visitor is leaving.)",
+    lines: [
+      "Happy Halloween! May your night be full of treats and giggles!",
+      "Happy Halloween, brave visitor! The glass will miss you!",
+      "Happy Halloween! Come back next year in your best costume!",
+      "Farewell, and Happy Halloween! Mind my glass on your way out!",
+      "Happy Halloween! The Queen says hi... and she is a little jealous!",
+    ],
+  },
+} satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
+const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
 // "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
 // Only upbeat tones: the mirror always sounds fun (dramatic and whisper sounded odd at the party).
@@ -60,7 +89,7 @@ let latencyFrom = "";
 const config = (await (await fetch("/api/config")).json()) as Config;
 const face = createMaskFace(document.querySelector("#mirror")!);
 const conversation = createConversation();
-const operator = createOperator({ wake: () => void wake(), reset, nextVoice });
+const operator = createOperator({ wake: () => void wake(), reset, nextVoice, candy: () => void cue("candy"), halloween: () => void cue("halloween") });
 const speaker = createSpeaker(config.tts, config.voiceFx, {
   onLevel: (level, shape) => face.setMouth(level, shape),
   onAudioStart,
@@ -244,6 +273,39 @@ async function wake() {
   face.setMood("grand");
   face.effect("thunder");
   speaker.say(OPENING, MOOD_VOICE.grand);
+  await speaker.finish();
+  if (v !== visit) return;
+  await listen(v);
+}
+
+// C and H: the mirror says the line at once, cutting off whatever it was saying, and then listens
+// again. From sleep it wakes up first.
+async function cue(kind: keyof typeof CUES) {
+  void speaker.resume();
+  const { mood, effect, note, lines } = CUES[kind];
+  const choices = lines.filter((line) => line !== lastCue[kind]); // never the same line twice running
+  const text = choices[Math.floor(Math.random() * choices.length)];
+  lastCue[kind] = text;
+  const asleep = state.get() === "SLEEPING";
+  const v = ++visit;
+  inflight?.abort();
+  speaker.stop();
+  void listener.pause();
+  if (asleep) {
+    conversation.reset();
+    operator.clearTranscript();
+    state.set("WAKING");
+    await delay(1200); // let the mask fade in
+    if (v !== visit) return;
+  }
+  conversation.add({ role: "user", content: note });
+  conversation.add({ role: "assistant", content: `[[effect:${effect}]] [[mood:${mood}]] ${text}` });
+  operator.transcript(`mirror: ${text}`);
+  state.set("SPEAKING");
+  speaker.say(text, MOOD_VOICE[mood], () => {
+    face.setMood(mood);
+    face.effect(effect);
+  });
   await speaker.finish();
   if (v !== visit) return;
   await listen(v);
