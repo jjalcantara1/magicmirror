@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribeGroq } from "./providers/stt.ts";
-import { GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
+import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
 // The project folder. Paths start here, not at the working folder, so the server finds the page
@@ -15,7 +15,26 @@ const STT_MODEL = process.env.STT_MODEL || "whisper-large-v3-turbo";
 const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !process.env.GROQ_API_KEY ? "piper" : "groq";
 const TTS_MODEL = process.env.TTS_MODEL || "canopylabs/orpheus-v1-english";
 const PIPER_VOICE = process.env.TTS_VOICE || "en_GB-alan-medium";
-const GROQ_VOICE = process.env.GROQ_TTS_VOICE || "troy";
+const GROQ_VOICE_SETTING = process.env.GROQ_TTS_VOICE || "deepest";
+let groqVoice = GROQ_VOICE_SETTING === "deepest" ? "troy" : GROQ_VOICE_SETTING;
+// "deepest": ask Groq for one line in each male voice (3 requests) and use the lowest. If Groq
+// refuses (before its terms are accepted, say), the next page load tries again.
+let voiceChosen: Promise<void> | undefined;
+function chooseVoice(): Promise<void> {
+  if (TTS_ENGINE !== "groq" || GROQ_VOICE_SETTING !== "deepest") return Promise.resolve();
+  voiceChosen ??= findDeepestVoice(GROQ_MALE_VOICES, TTS_MODEL).then(
+    ({ voice, pitches }) => {
+      groqVoice = voice;
+      console.log(`[tts] deepest Groq voice: ${voice} (median pitch: ${Object.entries(pitches).map(([v, hz]) => `${v} ${hz} Hz`).join(", ")})`);
+    },
+    (e: Error) => {
+      console.warn(`[tts] could not compare the Groq voices (${e.message}); using ${groqVoice} until the next page load`);
+      voiceChosen = undefined;
+    },
+  );
+  return voiceChosen;
+}
+void chooseVoice();
 const prod = process.argv.includes("--prod");
 
 const app = express();
@@ -36,10 +55,12 @@ app.use("/vad", express.static(dirname(vadEntry)), express.static(vadOrtDist));
 const piperEntry = fileURLToPath(import.meta.resolve("@mintplex-labs/piper-tts-web"));
 app.use("/ort", express.static(dirname(createRequire(piperEntry).resolve("onnxruntime-web/wasm"))));
 
-app.get("/api/config", (_req, res) => {
+app.get("/api/config", async (_req, res) => {
+  // Wait a little for the voice comparison, so the page gets the deepest voice.
+  await Promise.race([chooseVoice(), new Promise((resolve) => setTimeout(resolve, 6000))]);
   res.json({
-    tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? GROQ_VOICE : PIPER_VOICE, piperVoice: PIPER_VOICE },
-    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.75), echo: Number(process.env.VOICE_ECHO || 0.4) },
+    tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE, piperVoice: PIPER_VOICE },
+    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.7), echo: Number(process.env.VOICE_ECHO || 0.4), bass: Number(process.env.VOICE_BASS || 0.5) },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),

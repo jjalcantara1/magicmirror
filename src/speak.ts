@@ -1,7 +1,10 @@
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
 
-/** pitch: below 1 is deeper (at the same speed). echo: 0 = dry, 1 = a big echoing hall. */
-export type VoiceFx = { pitch: number; echo: number };
+/**
+ * pitch: below 1 is deeper (at the same speed). echo: 0 = dry, 1 = a big echoing hall.
+ * bass: how loud a rumble an octave below the voice is, 0 = none.
+ */
+export type VoiceFx = { pitch: number; echo: number; bass: number };
 /** engine: the main voice. voice: its voice id. piperVoice: the local backup voice. */
 export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string };
 
@@ -47,7 +50,11 @@ export function createSpeaker(
   analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.5;
   // The analyser hears the voice before the echo, so the mouth closes when the words end.
-  analyser.connect(mirrorVoice(audioContext, fx.echo));
+  const voiceIn = mirrorVoice(audioContext, fx.echo);
+  analyser.connect(voiceIn);
+  // The octave-lower layer: only its low rumble goes under the voice, and the mouth does not hear it.
+  const bassIn = new BiquadFilterNode(audioContext, { type: "lowpass", frequency: 280 });
+  bassIn.connect(new GainNode(audioContext, { gain: fx.bass })).connect(voiceIn);
   const worker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
   const send = (msg: TtsRequest) => worker.postMessage(msg);
 
@@ -78,7 +85,7 @@ export function createSpeaker(
     hooks.onAudioStart();
   }
 
-  function play(samples: Float32Array, sampleRate: number, pieces: number) {
+  function play(samples: Float32Array, sampleRate: number, pieces: number, bass: Float32Array) {
     if (!samples.length) return pieceDone(pieces);
     const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
     buffer.copyToChannel(new Float32Array(samples), 0);
@@ -89,6 +96,17 @@ export function createSpeaker(
     const at = Math.max(audioContext.currentTime + 0.03, nextStart);
     source.start(at);
     nextStart = at + buffer.duration / fx.pitch;
+    if (bass.length) {
+      const low = audioContext.createBuffer(1, bass.length, sampleRate);
+      low.copyToChannel(new Float32Array(bass), 0);
+      const under = audioContext.createBufferSource();
+      under.buffer = low;
+      under.playbackRate.value = fx.pitch;
+      under.connect(bassIn);
+      under.start(at);
+      sources.add(under);
+      under.onended = () => sources.delete(under);
+    }
     sources.add(source);
     source.onended = () => {
       sources.delete(source);
@@ -129,11 +147,11 @@ export function createSpeaker(
       } else if (msg.generation === generation) {
         pending.splice(0, msg.pieces);
         hooks.onPiece(msg.genMs, msg.samples.length / msg.sampleRate / fx.pitch, msg.by);
-        play(msg.samples, msg.sampleRate, msg.pieces);
+        play(msg.samples, msg.sampleRate, msg.pieces, msg.bass);
       }
     };
   });
-  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch });
+  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch, bass: fx.bass > 0 });
 
   const frame = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);

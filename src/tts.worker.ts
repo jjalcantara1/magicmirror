@@ -3,20 +3,24 @@
 // laptop's CPU as the backup, and as the only voice without a Groq key. Kokoro sounded richer than
 // Piper, but on the party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
 import { TtsSession } from "@mintplex-labs/piper-tts-web";
-import { stretch } from "./stretch.ts";
+import { octaveBelow, stretch } from "./stretch.ts";
+import { parseWav, type Audio } from "./wav.ts";
 
-export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number };
+export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; bass: boolean };
 type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string };
 export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
   | { type: "failed"; error: string }
   // pieces: how many speak requests this audio covers (Groq pieces are joined into one request).
-  | { type: "audio"; generation: number; pieces: number; samples: Float32Array; sampleRate: number; genMs: number; by: string };
-
-type Audio = { samples: Float32Array; sampleRate: number };
+  // bass: the same audio an octave lower (empty when the bass layer is off).
+  | { type: "audio"; generation: number; pieces: number; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
 
 const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tts.ts)
+// Groq audio for lines said before, like the opening every visit starts with: those then start at
+// once and use none of Groq's daily requests.
+const said = new Map<string, Audio>();
+const SAID_MAX = 10;
 const WASM_PATHS = {
   // The server serves the onnxruntime-web version that this bundle imports.
   onnxWasm: "/ort/",
@@ -47,45 +51,6 @@ function loadPiper(voice: string): Promise<TtsSession> {
     });
   }
   return piper.session;
-}
-
-// Reads a WAV file: 16-bit PCM or 32-bit float, mixed down to mono. Piper and Groq both send WAV.
-function parseWav(wav: ArrayBuffer): Audio {
-  const view = new DataView(wav);
-  let format = 1;
-  let channels = 1;
-  let sampleRate = 22050;
-  let bits = 16;
-  for (let pos = 12; pos + 8 <= wav.byteLength; ) {
-    const id = String.fromCharCode(view.getUint8(pos), view.getUint8(pos + 1), view.getUint8(pos + 2), view.getUint8(pos + 3));
-    let size = view.getUint32(pos + 4, true);
-    const body = pos + 8;
-    if (id === "fmt ") {
-      format = view.getUint16(body, true);
-      channels = view.getUint16(body + 2, true);
-      sampleRate = view.getUint32(body + 4, true);
-      bits = view.getUint16(body + 14, true);
-    } else if (id === "data") {
-      // A streamed WAV can leave the data size open.
-      if (size === 0 || body + size > wav.byteLength) size = wav.byteLength - body;
-      const float = format === 3 || (format === 0xfffe && bits === 32);
-      if (!float && bits !== 16) throw new Error(`WAV with ${bits}-bit samples is not supported`);
-      const bytes = bits / 8;
-      const frames = Math.floor(size / (bytes * channels));
-      const samples = new Float32Array(frames);
-      for (let i = 0; i < frames; i++) {
-        let sum = 0;
-        for (let c = 0; c < channels; c++) {
-          const at = body + (i * channels + c) * bytes;
-          sum += float ? view.getFloat32(at, true) : view.getInt16(at, true) / 32768;
-        }
-        samples[i] = sum / channels;
-      }
-      return { samples, sampleRate };
-    }
-    pos = body + size + (size & 1);
-  }
-  throw new Error("the WAV has no audio");
 }
 
 // Splits text into parts of at most `max` characters, at spaces.
@@ -161,8 +126,12 @@ async function pump() {
     let audio: Audio | undefined;
     let by = groq ? `groq ${job.voice}` : `piper ${job.voice}`;
     if (groq) {
+      const key = `${job.voice}|${text}`;
       try {
-        audio = await groqSpeech(text, job.voice);
+        audio = said.get(key) ?? (await groqSpeech(text, job.voice));
+        said.delete(key);
+        said.set(key, audio); // newest last, so the oldest goes first
+        if (said.size > SAID_MAX) said.delete(said.keys().next().value!);
       } catch (e) {
         by = `piper backup (Groq: ${(e as Error).message.slice(0, 80)})`;
       }
@@ -176,9 +145,14 @@ async function pump() {
       }
     }
     // Shorter here, then played lower by the same factor: a deeper voice at a natural speed.
-    const samples = audio ? stretch(audio.samples, config.pitch, audio.sampleRate) : new Float32Array(0);
+    let samples = audio ? stretch(audio.samples, config.pitch, audio.sampleRate) : new Float32Array(0);
+    if (samples === audio?.samples) samples = samples.slice(); // sending it would empty the cached copy
+    const bass = audio && config.bass ? octaveBelow(samples, audio.sampleRate) : new Float32Array(0);
     // Silence still counts its pieces, so the speaker's count of pending pieces stays right.
-    reply({ type: "audio", generation: job.generation, pieces, samples, sampleRate: audio?.sampleRate ?? 22050, genMs: performance.now() - start, by }, [samples.buffer]);
+    reply(
+      { type: "audio", generation: job.generation, pieces, samples, bass, sampleRate: audio?.sampleRate ?? 22050, genMs: performance.now() - start, by },
+      [samples.buffer, bass.buffer],
+    );
   }
   busy = false;
 }

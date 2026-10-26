@@ -682,7 +682,7 @@ const WAKE_BOUNCE = [0, 0, 0.3, 0, 0.6, 0.045, 0.82, -0.01, 1, 0];
 const WAKE_SQUASH = [0, 0, 0.12, 0.025, 0.38, -0.03, 0.62, 0.035, 0.82, -0.01, 1, 0];
 const WAKE_RISE = [0, 0, 0.3, 0, 0.6, -2.5, 0.85, 0.5, 1.05, 0];
 const WAKE_OPEN = 0.55;
-// main.ts moves on to thinking 1.2 s after waking, so the entrance fits in that.
+// main.ts starts the opening line 1.2 s after waking, so the entrance fits in that.
 const wakeFrom = (scale: number, hy: number): Perf => [1.2, (_u, s, o, d) => {
   const grow = 1 - smooth(s / 0.6);
   d.scale += scale * grow + keys(s, WAKE_BOUNCE);
