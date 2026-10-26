@@ -3,10 +3,10 @@
 // laptop's CPU as the backup, and as the only voice without a Groq key. Kokoro sounded richer than
 // Piper, but on the party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
 import { TtsSession } from "@mintplex-labs/piper-tts-web";
-import { octaveBelow, stretch } from "./stretch.ts";
+import { octaveBelow, stretch, tightenPauses } from "./stretch.ts";
 import { parseWav, type Audio } from "./wav.ts";
 
-export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; bass: boolean };
+export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; speed: number; bass: boolean };
 type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string };
 export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
 export type TtsReply =
@@ -144,8 +144,9 @@ async function pump() {
         by = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
       }
     }
-    // Shorter here, then played lower by the same factor: a deeper voice at a natural speed.
-    let samples = audio ? stretch(audio.samples, config.pitch, audio.sampleRate) : new Float32Array(0);
+    // Long pauses cut, then made shorter here and played lower by the pitch factor: a deeper voice,
+    // `speed` times as fast as the voice spoke it.
+    let samples = audio ? stretch(tightenPauses(audio.samples, audio.sampleRate), config.pitch / config.speed, audio.sampleRate) : new Float32Array(0);
     if (samples === audio?.samples) samples = samples.slice(); // sending it would empty the cached copy
     const bass = audio && config.bass ? octaveBelow(samples, audio.sampleRate) : new Float32Array(0);
     // Silence still counts its pieces, so the speaker's count of pending pieces stays right.
