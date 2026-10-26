@@ -1,7 +1,9 @@
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
 
-/** pitch: playback rate, below 1 is deeper and slower. echo: 0 = dry, 1 = a big echoing hall. */
+/** pitch: below 1 is deeper (at the same speed). echo: 0 = dry, 1 = a big echoing hall. */
 export type VoiceFx = { pitch: number; echo: number };
+/** engine: the main voice. voice: its voice id. piperVoice: the local backup voice. */
+export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string };
 
 // A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
 function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
@@ -36,9 +38,9 @@ function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
 
 // Speaks reply pieces in order with no gaps, and reports the mouth level and shape from the audio that is playing.
 export function createSpeaker(
-  initialVoice: string,
+  tts: TtsConfig,
   fx: VoiceFx,
-  hooks: { onLevel(level: number, shape: number): void; onAudioStart(): void; onPiece(genMs: number, audioSec: number): void },
+  hooks: { onLevel(level: number, shape: number): void; onAudioStart(): void; onPiece(genMs: number, audioSec: number, by: string): void },
 ) {
   const audioContext = new AudioContext();
   const analyser = audioContext.createAnalyser();
@@ -49,8 +51,8 @@ export function createSpeaker(
   const worker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
   const send = (msg: TtsRequest) => worker.postMessage(msg);
 
-  let voice = initialVoice;
-  let engine: "kokoro" | "browser" = "kokoro";
+  let voice = tts.voice;
+  let engine: "worker" | "browser" = "worker";
   let generation = 0; // stop() bumps this, so audio from an old reply is dropped
   let pending: string[] = []; // sent to the worker, audio not back yet
   let outstanding = 0; // pieces not finished playing
@@ -61,8 +63,8 @@ export function createSpeaker(
   let browserSpeaking = false;
   const sources = new Set<AudioBufferSourceNode>();
 
-  function pieceDone() {
-    outstanding--;
+  function pieceDone(pieces = 1) {
+    outstanding -= pieces;
     if (outstanding === 0 && finished) {
       const resolvers = idle;
       idle = [];
@@ -76,8 +78,8 @@ export function createSpeaker(
     hooks.onAudioStart();
   }
 
-  function play(samples: Float32Array, sampleRate: number) {
-    if (!samples.length) return pieceDone();
+  function play(samples: Float32Array, sampleRate: number, pieces: number) {
+    if (!samples.length) return pieceDone(pieces);
     const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
     buffer.copyToChannel(new Float32Array(samples), 0);
     const source = audioContext.createBufferSource();
@@ -90,7 +92,7 @@ export function createSpeaker(
     sources.add(source);
     source.onended = () => {
       sources.delete(source);
-      pieceDone();
+      pieceDone(pieces);
     };
     audioStarted();
   }
@@ -125,13 +127,13 @@ export function createSpeaker(
         pending = [];
         texts.forEach(speakBrowser);
       } else if (msg.generation === generation) {
-        pending.shift();
-        hooks.onPiece(msg.genMs, msg.samples.length / msg.sampleRate);
-        play(msg.samples, msg.sampleRate);
+        pending.splice(0, msg.pieces);
+        hooks.onPiece(msg.genMs, msg.samples.length / msg.sampleRate / fx.pitch, msg.by);
+        play(msg.samples, msg.sampleRate, msg.pieces);
       }
     };
   });
-  send({ type: "init", voice });
+  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch });
 
   const frame = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);

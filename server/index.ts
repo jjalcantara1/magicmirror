@@ -4,12 +4,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribeGroq } from "./providers/stt.ts";
+import { GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
 // The project folder. Paths start here, not at the working folder, so the server finds the page
 // however it is started (npm script, VS Code debugger, or another folder).
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const STT_MODEL = process.env.STT_MODEL || "whisper-large-v3-turbo";
+// The Groq voice needs the Groq key; without it, or with TTS_ENGINE=piper, the local Piper voice speaks.
+const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !process.env.GROQ_API_KEY ? "piper" : "groq";
+const TTS_MODEL = process.env.TTS_MODEL || "canopylabs/orpheus-v1-english";
+const PIPER_VOICE = process.env.TTS_VOICE || "en_GB-alan-medium";
+const GROQ_VOICE = process.env.GROQ_TTS_VOICE || "troy";
 const prod = process.argv.includes("--prod");
 
 const app = express();
@@ -32,8 +38,8 @@ app.use("/ort", express.static(dirname(createRequire(piperEntry).resolve("onnxru
 
 app.get("/api/config", (_req, res) => {
   res.json({
-    ttsVoice: process.env.TTS_VOICE || "en_GB-alan-medium",
-    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.86), echo: Number(process.env.VOICE_ECHO || 0.4) },
+    tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? GROQ_VOICE : PIPER_VOICE, piperVoice: PIPER_VOICE },
+    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.75), echo: Number(process.env.VOICE_ECHO || 0.4) },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
@@ -44,7 +50,22 @@ app.get("/api/config", (_req, res) => {
 });
 
 app.get("/api/status", (_req, res) => {
-  res.json({ llm: chatStatus(), stt: sttStatus() });
+  res.json({ llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
+});
+
+// The browser's voice worker asks for each piece of speech here, so the Groq key stays on the laptop.
+app.post("/api/tts", express.json({ limit: "10kb" }), async (req, res) => {
+  const { text, voice } = (req.body ?? {}) as { text?: unknown; voice?: unknown };
+  if (typeof text !== "string" || !text.trim() || text.length > GROQ_TTS_MAX_CHARS || typeof voice !== "string") {
+    res.status(400).json({ error: `Expected {text: 1-${GROQ_TTS_MAX_CHARS} characters, voice}` });
+    return;
+  }
+  try {
+    res.type("audio/wav").send(await speakGroq(text, voice, TTS_MODEL));
+  } catch (e) {
+    console.warn(`[tts] groq failed: ${(e as Error).message}`);
+    res.status(502).json({ error: (e as Error).message });
+  }
 });
 
 // Audio is transcribed in memory and never written to disk.

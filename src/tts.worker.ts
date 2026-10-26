@@ -1,15 +1,22 @@
-// Piper runs in a worker so that generating speech does not freeze the face animation.
-// Kokoro sounded richer, but on the party laptop's Intel GPU it ran 1-4x slower than real time
-// (measured 2026-10-22), so speech came out choppy. Piper is a much smaller model and runs on the CPU.
+// Speech is made in a worker so that it does not freeze the face animation.
+// The main voice is Groq's Orpheus (through /api/tts): it sounds like a person. Piper runs on the
+// laptop's CPU as the backup, and as the only voice without a Groq key. Kokoro sounded richer than
+// Piper, but on the party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
 import { TtsSession } from "@mintplex-labs/piper-tts-web";
+import { stretch } from "./stretch.ts";
 
+export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number };
 type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string };
-export type TtsRequest = { type: "init"; voice: string } | SpeakRequest | { type: "cancel" };
+export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
   | { type: "failed"; error: string }
-  | { type: "audio"; generation: number; samples: Float32Array; sampleRate: number; genMs: number };
+  // pieces: how many speak requests this audio covers (Groq pieces are joined into one request).
+  | { type: "audio"; generation: number; pieces: number; samples: Float32Array; sampleRate: number; genMs: number; by: string };
 
+type Audio = { samples: Float32Array; sampleRate: number };
+
+const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tts.ts)
 const WASM_PATHS = {
   // The server serves the onnxruntime-web version that this bundle imports.
   onnxWasm: "/ort/",
@@ -19,33 +26,117 @@ const WASM_PATHS = {
   piperData: "https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize.data",
 };
 
-let session: TtsSession | undefined;
+let config: TtsInit | undefined;
+let ready = false;
 let busy = false;
 const queue: SpeakRequest[] = [];
+let piper: { voice: string; session: Promise<TtsSession> } | undefined;
 const reply = (msg: TtsReply, transfer: Transferable[] = []) => postMessage(msg, { transfer });
 
-async function load(voice: string): Promise<TtsSession> {
-  if (session?.voiceId === voice) return session;
-  // The library keeps one session and ignores a new voiceId on it, so reset it to change voice.
-  TtsSession._instance = null;
-  session = await TtsSession.create({ voiceId: voice, wasmPaths: WASM_PATHS });
-  return session;
+function loadPiper(voice: string): Promise<TtsSession> {
+  if (piper?.voice !== voice) {
+    // The library keeps one session and ignores a new voiceId on it, so reset it to change voice.
+    TtsSession._instance = null;
+    const session = TtsSession.create({ voiceId: voice, wasmPaths: WASM_PATHS }).then(async (s) => {
+      await s.predict("Mirror, mirror."); // warm up, so the first visitor does not wait for it
+      return s;
+    });
+    piper = { voice, session };
+    session.catch(() => {
+      if (piper?.session === session) piper = undefined; // try again next time
+    });
+  }
+  return piper.session;
 }
 
-// Piper returns a 16-bit mono WAV with a 44-byte header.
-function wavToSamples(wav: ArrayBuffer): { samples: Float32Array; sampleRate: number } {
-  const sampleRate = new DataView(wav).getUint32(24, true);
-  const pcm = new Int16Array(wav, 44);
-  const samples = new Float32Array(pcm.length);
-  for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
-  return { samples, sampleRate };
+// Reads a WAV file: 16-bit PCM or 32-bit float, mixed down to mono. Piper and Groq both send WAV.
+function parseWav(wav: ArrayBuffer): Audio {
+  const view = new DataView(wav);
+  let format = 1;
+  let channels = 1;
+  let sampleRate = 22050;
+  let bits = 16;
+  for (let pos = 12; pos + 8 <= wav.byteLength; ) {
+    const id = String.fromCharCode(view.getUint8(pos), view.getUint8(pos + 1), view.getUint8(pos + 2), view.getUint8(pos + 3));
+    let size = view.getUint32(pos + 4, true);
+    const body = pos + 8;
+    if (id === "fmt ") {
+      format = view.getUint16(body, true);
+      channels = view.getUint16(body + 2, true);
+      sampleRate = view.getUint32(body + 4, true);
+      bits = view.getUint16(body + 14, true);
+    } else if (id === "data") {
+      // A streamed WAV can leave the data size open.
+      if (size === 0 || body + size > wav.byteLength) size = wav.byteLength - body;
+      const float = format === 3 || (format === 0xfffe && bits === 32);
+      if (!float && bits !== 16) throw new Error(`WAV with ${bits}-bit samples is not supported`);
+      const bytes = bits / 8;
+      const frames = Math.floor(size / (bytes * channels));
+      const samples = new Float32Array(frames);
+      for (let i = 0; i < frames; i++) {
+        let sum = 0;
+        for (let c = 0; c < channels; c++) {
+          const at = body + (i * channels + c) * bytes;
+          sum += float ? view.getFloat32(at, true) : view.getInt16(at, true) / 32768;
+        }
+        samples[i] = sum / channels;
+      }
+      return { samples, sampleRate };
+    }
+    pos = body + size + (size & 1);
+  }
+  throw new Error("the WAV has no audio");
 }
 
-async function init(voice: string) {
+// Splits text into parts of at most `max` characters, at spaces.
+function split(text: string, max: number): string[] {
+  const parts: string[] = [];
+  let rest = text.trim();
+  while (rest.length > max) {
+    const cut = rest.lastIndexOf(" ", max);
+    const at = cut > 0 ? cut : max;
+    parts.push(rest.slice(0, at));
+    rest = rest.slice(at).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+async function groqSpeech(text: string, voice: string): Promise<Audio> {
+  const audio: Audio[] = [];
+  for (const part of split(text, GROQ_MAX_CHARS)) {
+    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: part, voice }) });
+    if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
+    audio.push(parseWav(await res.arrayBuffer()));
+  }
+  const samples = new Float32Array(audio.reduce((n, a) => n + a.samples.length, 0));
+  let at = 0;
+  for (const a of audio) {
+    samples.set(a.samples, at);
+    at += a.samples.length;
+  }
+  return { samples, sampleRate: audio[0].sampleRate };
+}
+
+async function piperSpeech(text: string, voice: string): Promise<Audio> {
+  const session = await loadPiper(voice);
+  return parseWav(await (await session.predict(text)).arrayBuffer());
+}
+
+async function init(msg: TtsInit) {
+  config = msg;
+  if (msg.engine === "groq") {
+    ready = true;
+    reply({ type: "ready", engine: `groq ${msg.voice} (backup: piper ${msg.piperVoice})` });
+    void pump();
+    // The local voice loads in the background, as the backup for when Groq cannot answer.
+    loadPiper(msg.piperVoice).catch((e) => console.warn("[tts] backup voice did not load", e));
+    return;
+  }
   try {
-    const s = await load(voice);
-    await s.predict("Mirror, mirror."); // warm up, so the first visitor does not wait for it
-    reply({ type: "ready", engine: `piper ${voice}` });
+    await loadPiper(msg.voice);
+    ready = true;
+    reply({ type: "ready", engine: `piper ${msg.voice}` });
     void pump();
   } catch (e) {
     reply({ type: "failed", error: (e as Error).message });
@@ -53,27 +144,48 @@ async function init(voice: string) {
 }
 
 async function pump() {
-  if (busy || !session) return;
+  if (busy || !ready || !config) return;
   busy = true;
   while (queue.length) {
     const job = queue.shift()!;
-    const start = performance.now();
-    try {
-      const s = await load(job.voice);
-      const { samples, sampleRate } = wavToSamples(await (await s.predict(job.text)).arrayBuffer());
-      reply({ type: "audio", generation: job.generation, samples, sampleRate, genMs: performance.now() - start }, [samples.buffer]);
-    } catch (e) {
-      console.warn("[tts] generate failed", e);
-      // Reply with silence so the speaker's count of pending pieces stays right.
-      reply({ type: "audio", generation: job.generation, samples: new Float32Array(0), sampleRate: 22050, genMs: performance.now() - start });
+    let text = job.text;
+    let pieces = 1;
+    const groq = config.engine === "groq";
+    // Pieces that queued up while the last request ran go to Groq as one request: fewer requests
+    // (Groq limits them), and the first piece of a reply still goes alone, so speech starts soon.
+    while (groq && queue[0]?.generation === job.generation && text.length + 1 + queue[0].text.length <= GROQ_MAX_CHARS) {
+      text += ` ${queue.shift()!.text}`;
+      pieces++;
     }
+    const start = performance.now();
+    let audio: Audio | undefined;
+    let by = groq ? `groq ${job.voice}` : `piper ${job.voice}`;
+    if (groq) {
+      try {
+        audio = await groqSpeech(text, job.voice);
+      } catch (e) {
+        by = `piper backup (Groq: ${(e as Error).message.slice(0, 80)})`;
+      }
+    }
+    if (!audio) {
+      try {
+        audio = await piperSpeech(text, groq ? config.piperVoice : job.voice);
+      } catch (e) {
+        console.warn("[tts] generate failed", e);
+        by = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
+      }
+    }
+    // Shorter here, then played lower by the same factor: a deeper voice at a natural speed.
+    const samples = audio ? stretch(audio.samples, config.pitch, audio.sampleRate) : new Float32Array(0);
+    // Silence still counts its pieces, so the speaker's count of pending pieces stays right.
+    reply({ type: "audio", generation: job.generation, pieces, samples, sampleRate: audio?.sampleRate ?? 22050, genMs: performance.now() - start, by }, [samples.buffer]);
   }
   busy = false;
 }
 
 self.onmessage = (e: MessageEvent<TtsRequest>) => {
   const msg = e.data;
-  if (msg.type === "init") void init(msg.voice);
+  if (msg.type === "init") void init(msg);
   else if (msg.type === "speak") {
     queue.push(msg);
     void pump();

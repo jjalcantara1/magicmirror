@@ -5,19 +5,21 @@ import { EFFECTS, MOODS, type Effect, type Mood } from "./face/face.ts";
 import { createMaskFace } from "./face/maskFace.ts";
 import { createListener, type VadConfig } from "./listen.ts";
 import { createOperator } from "./operator.ts";
-import { createSpeaker, type VoiceFx } from "./speak.ts";
+import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
 import { createState } from "./state.ts";
 
-type Config = { ttsVoice: string; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
+type Config = { tts: TtsConfig; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
 const GREETING =
   "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance, and invite them to say the magic words: Mirror, mirror, on the wall.)";
 // The magic words. Speech-to-text writes them in many ways, so match the core of them.
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b/i;
+// Groq's Orpheus male voices (checked 2026-10). Press V to hear each; put the winner in GROQ_TTS_VOICE.
+const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
-const AUDITION_VOICES = [
+const PIPER_VOICES = [
   "en_GB-alan-medium",
   "en_GB-northern_english_male-medium",
   "en_US-ryan-medium",
@@ -40,10 +42,10 @@ const config = (await (await fetch("/api/config")).json()) as Config;
 const face = createMaskFace(document.querySelector("#mirror")!);
 const conversation = createConversation();
 const operator = createOperator({ wake: () => void wake(), reset, nextVoice });
-const speaker = createSpeaker(config.ttsVoice, config.voiceFx, {
+const speaker = createSpeaker(config.tts, config.voiceFx, {
   onLevel: (level, shape) => face.setMouth(level, shape),
   onAudioStart,
-  onPiece: (genMs, audioSec) => operator.set("speech", `last piece took ${Math.round(genMs)} ms to make ${audioSec.toFixed(1)} s of audio`),
+  onPiece: (genMs, audioSec, by) => operator.set("speech", `${by}: ${Math.round(genMs)} ms to make ${audioSec.toFixed(1)} s of audio`),
 });
 const state = createState((s, faceState) => {
   face.setState(faceState);
@@ -52,7 +54,7 @@ const state = createState((s, faceState) => {
 });
 face.setState("asleep");
 operator.set("state", "SLEEPING");
-operator.set("voice", config.ttsVoice);
+operator.set("voice", config.tts.voice);
 operator.set("tts", "loading…");
 void speaker.ready.then((engine) => {
   operator.set("tts", engine);
@@ -223,10 +225,12 @@ function reset() {
   state.set("SLEEPING");
 }
 
-// Voice audition: V cycles through the shortlist. Put the winner in TTS_VOICE in .env.
+// Voice audition: V cycles through the shortlist of the main voice. Put the winner in .env
+// (GROQ_TTS_VOICE for Groq, TTS_VOICE for Piper).
 function nextVoice() {
   void speaker.resume();
-  const next = AUDITION_VOICES[(AUDITION_VOICES.indexOf(speaker.voice()) + 1) % AUDITION_VOICES.length];
+  const voices = config.tts.engine === "groq" ? GROQ_VOICES : PIPER_VOICES;
+  const next = voices[(voices.indexOf(speaker.voice()) + 1) % voices.length];
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
