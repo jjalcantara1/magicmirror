@@ -1,10 +1,10 @@
 // Every face implements this, so the mask can be swapped for another design.
 export type FaceState = "asleep" | "waking" | "listening" | "thinking" | "speaking";
 
-export const EFFECTS = ["sparkle", "thunder", "smoke", "glow", "crown"] as const;
+export const EFFECTS = ["sparkle", "thunder", "smoke", "glow"] as const;
 export type Effect = (typeof EFFECTS)[number];
 
-export const MOODS = ["happy", "laugh", "surprised", "sly", "wink", "spooky", "gentle"] as const;
+export const MOODS = ["grand", "happy", "laugh", "surprised", "sly", "wink", "spooky", "gentle", "excited", "love"] as const;
 export type Mood = (typeof MOODS)[number];
 
 export interface Face {
@@ -16,5 +16,7 @@ export interface Face {
   setMouth(open: number, shape: number): void;
   /** Shows an expression for the reply that is starting. The next state other than speaking clears it. */
   setMood(mood: Mood): void;
+  /** The visitor's voice, 0 = quiet .. 1 = loud, for every mic frame. Only the listening face reacts. */
+  hear(level: number): void;
   effect(name: Effect): void;
 }

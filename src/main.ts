@@ -11,7 +11,7 @@ import { createState } from "./state.ts";
 type Config = { ttsVoice: string; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-const GREETING = "(A new visitor has just stepped up to the mirror. Greet them!)";
+const GREETING = "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance!)";
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
 const AUDITION_VOICES = [
@@ -58,7 +58,15 @@ void speaker.ready.then((engine) => {
 
 const listener = await createListener(speaker.audioContext, config.vad, {
   onUtterance: (audio) => void onUtterance(audio),
-  onFrame: (p, level) => operator.set("mic", `${"█".repeat(Math.min(30, Math.round(level * 150))).padEnd(30, "·")} speech ${p.toFixed(2)}`),
+  onFrame: (p, level) => {
+    // The face reacts only to speech, by the VAD's own thresholds, so noise does not set it off. The
+    // meter is full at a level of 0.2, a loud voice; the square root lets a shy voice count too.
+    // The face starts to react above 0.12, so check "face" on the mic line at the party.
+    const speechLike = Math.min(1, Math.max(0, (p - config.vad.negative) / Math.max(0.05, config.vad.positive - config.vad.negative)));
+    const heard = speechLike * Math.min(1, Math.sqrt(level * 5));
+    face.hear(heard);
+    operator.set("mic", `${"█".repeat(Math.min(30, Math.round(level * 150))).padEnd(30, "·")} speech ${p.toFixed(2)} face ${heard.toFixed(2)}`);
+  },
 });
 // Ask for the mic now, so the permission prompt does not appear in the middle of a greeting.
 await listener.start();
@@ -137,7 +145,7 @@ async function respond(v: number) {
     operator.set("llm", `failed: ${(e as Error).message}`);
     if (!speaking) {
       state.set("SPEAKING");
-      speaker.say("Oh! My magic flickered. Ask me once more!");
+      speaker.say("Bother! A smudge upon my glass! Ask me once more!");
     }
   }
   if (v !== visit) return;
@@ -214,6 +222,6 @@ function nextVoice() {
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
-  speaker.say("Abraca-pumpkin! I am the Magic Mirror on the wall. Who is the fairest of them all?");
+  speaker.say("Speak, and the glass shall answer! I am the Magic Mirror on the wall. Who is the fairest of them all?");
   void speaker.finish();
 }
