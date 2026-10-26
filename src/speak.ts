@@ -1,10 +1,10 @@
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
 
 /**
- * pitch: below 1 is deeper (at the same speed). echo: 0 = dry, 1 = a big echoing hall.
- * bass: how loud a rumble an octave below the voice is, 0 = none.
+ * pitch: below 1 is deeper (at the same speed). speed: above 1 is faster (at the same pitch).
+ * echo: 0 = dry, 1 = a big echoing hall. bass: how loud a rumble an octave below the voice is, 0 = none.
  */
-export type VoiceFx = { pitch: number; echo: number; bass: number };
+export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number };
 /** engine: the main voice. voice: its voice id. piperVoice: the local backup voice. */
 export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string };
 
@@ -151,7 +151,7 @@ export function createSpeaker(
       }
     };
   });
-  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch, bass: fx.bass > 0 });
+  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch, speed: fx.speed, bass: fx.bass > 0 });
 
   const frame = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);

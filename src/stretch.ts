@@ -59,3 +59,47 @@ export function octaveBelow(input: Float32Array, sampleRate: number): Float32Arr
   }
   return out;
 }
+
+// Shortens pauses: the silence at each end goes down to `edge` seconds and any pause inside to `gap`
+// seconds, half kept after the sound before it and half before the sound after it, so soft starts
+// and endings of words stay. Voices pause long at commas and "...", and a deep voice then drags.
+export function tightenPauses(input: Float32Array, sampleRate: number, edge = 0.04, gap = 0.22): Float32Array {
+  const win = Math.round(sampleRate * 0.01);
+  let peak = 0;
+  for (const x of input) peak = Math.max(peak, Math.abs(x));
+  const floor = peak * 0.015; // about 36 dB below the loudest sound
+  const count = Math.ceil(input.length / win);
+  const loud: boolean[] = [];
+  for (let w = 0; w < count; w++) {
+    const end = Math.min(input.length, (w + 1) * win);
+    let sum = 0;
+    for (let i = w * win; i < end; i++) sum += input[i] * input[i];
+    loud.push(Math.sqrt(sum / (end - w * win)) > floor);
+  }
+  const first = loud.indexOf(true);
+  if (first < 0) return input;
+  const last = loud.lastIndexOf(true);
+  const keepEdge = Math.round(edge / 0.01);
+  const half = Math.round(gap / 0.02);
+  const keep = new Array<boolean>(count).fill(false);
+  for (let w = Math.max(0, first - keepEdge); w <= Math.min(count - 1, last + keepEdge); w++) keep[w] = true;
+  for (let w = first; w <= last; ) {
+    if (loud[w]) {
+      w++;
+      continue;
+    }
+    let end = w;
+    while (!loud[end]) end++;
+    for (let q = w + half; q < end - half; q++) keep[q] = false;
+    w = end;
+  }
+  const out = new Float32Array(input.length);
+  let n = 0;
+  for (let w = 0; w < count; w++) {
+    if (!keep[w]) continue;
+    const part = input.subarray(w * win, Math.min(input.length, (w + 1) * win));
+    out.set(part, n);
+    n += part.length;
+  }
+  return out.subarray(0, n);
+}

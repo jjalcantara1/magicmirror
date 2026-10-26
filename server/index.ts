@@ -60,7 +60,12 @@ app.get("/api/config", async (_req, res) => {
   await Promise.race([chooseVoice(), new Promise((resolve) => setTimeout(resolve, 6000))]);
   res.json({
     tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE, piperVoice: PIPER_VOICE },
-    voiceFx: { pitch: Number(process.env.VOICE_PITCH || 0.7), echo: Number(process.env.VOICE_ECHO || 0.4), bass: Number(process.env.VOICE_BASS || 0.5) },
+    voiceFx: {
+      pitch: Number(process.env.VOICE_PITCH || 0.7),
+      speed: Number(process.env.VOICE_SPEED || 1.2),
+      echo: Number(process.env.VOICE_ECHO || 0.4),
+      bass: Number(process.env.VOICE_BASS || 0.5),
+    },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
