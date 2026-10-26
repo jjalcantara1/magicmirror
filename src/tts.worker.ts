@@ -7,7 +7,8 @@ import { octaveBelow, stretch, tightenPauses } from "./stretch.ts";
 import { parseWav, type Audio } from "./wav.ts";
 
 export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; speed: number; bass: boolean };
-type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string };
+// tone: how Groq should say it, as an Orpheus direction like "cheerful" ("" = natural). Piper ignores it.
+type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string; tone: string };
 export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
@@ -67,10 +68,14 @@ function split(text: string, max: number): string[] {
   return parts;
 }
 
-async function groqSpeech(text: string, voice: string): Promise<Audio> {
+// The direction goes in front of the text, like "[cheerful] Hello!", and counts toward Groq's limit.
+const direction = (tone: string) => (tone ? `[${tone}] ` : "");
+
+async function groqSpeech(text: string, voice: string, tone: string): Promise<Audio> {
   const audio: Audio[] = [];
-  for (const part of split(text, GROQ_MAX_CHARS)) {
-    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: part, voice }) });
+  for (const part of split(text, GROQ_MAX_CHARS - direction(tone).length)) {
+    const body = JSON.stringify({ text: direction(tone) + part, voice });
+    const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body });
     if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
     audio.push(parseWav(await res.arrayBuffer()));
   }
@@ -118,7 +123,9 @@ async function pump() {
     const groq = config.engine === "groq";
     // Pieces that queued up while the last request ran go to Groq as one request: fewer requests
     // (Groq limits them), and the first piece of a reply still goes alone, so speech starts soon.
-    while (groq && queue[0]?.generation === job.generation && text.length + 1 + queue[0].text.length <= GROQ_MAX_CHARS) {
+    // Only pieces in the same tone join, as one request has one direction.
+    const room = GROQ_MAX_CHARS - direction(job.tone).length;
+    while (groq && queue[0]?.generation === job.generation && queue[0].tone === job.tone && text.length + 1 + queue[0].text.length <= room) {
       text += ` ${queue.shift()!.text}`;
       pieces++;
     }
@@ -126,9 +133,9 @@ async function pump() {
     let audio: Audio | undefined;
     let by = groq ? `groq ${job.voice}` : `piper ${job.voice}`;
     if (groq) {
-      const key = `${job.voice}|${text}`;
+      const key = `${job.voice}|${direction(job.tone)}${text}`;
       try {
-        audio = said.get(key) ?? (await groqSpeech(text, job.voice));
+        audio = said.get(key) ?? (await groqSpeech(text, job.voice, job.tone));
         said.delete(key);
         said.set(key, audio); // newest last, so the oldest goes first
         if (said.size > SAID_MAX) said.delete(said.keys().next().value!);

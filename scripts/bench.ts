@@ -14,7 +14,7 @@ const KID_TURNS = [
   "Mirror, mirror on the wall, who is the fairest of them all?",
 ];
 const GROQ_CHAT_MODELS = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
-const GROQ_STT_MODEL = process.env.STT_MODEL || "whisper-large-v3-turbo";
+const GROQ_STT_MODEL = (process.env.STT_MODEL || "whisper-large-v3").split(",")[0].trim();
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];

@@ -3,14 +3,15 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
-import { sttStatus, transcribeGroq } from "./providers/stt.ts";
+import { sttStatus, transcribe } from "./providers/stt.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
 // The project folder. Paths start here, not at the working folder, so the server finds the page
 // however it is started (npm script, VS Code debugger, or another folder).
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const STT_MODEL = process.env.STT_MODEL || "whisper-large-v3-turbo";
+// Full large-v3 first: turbo loses more accuracy on less common languages like Tagalog.
+const STT_MODELS = (process.env.STT_MODEL || "whisper-large-v3,whisper-large-v3-turbo").split(",").map((m) => m.trim()).filter(Boolean);
 // The Groq voice needs the Groq key; without it, or with TTS_ENGINE=piper, the local Piper voice speaks.
 const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !process.env.GROQ_API_KEY ? "piper" : "groq";
 const TTS_MODEL = process.env.TTS_MODEL || "canopylabs/orpheus-v1-english";
@@ -59,10 +60,15 @@ app.get("/api/config", async (_req, res) => {
   // Wait a little for the voice comparison, so the page gets the deepest voice.
   await Promise.race([chooseVoice(), new Promise((resolve) => setTimeout(resolve, 6000))]);
   res.json({
-    tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE, piperVoice: PIPER_VOICE },
+    tts: {
+      engine: TTS_ENGINE,
+      voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE,
+      piperVoice: PIPER_VOICE,
+      acting: process.env.VOICE_ACTING !== "off",
+    },
     voiceFx: {
       pitch: Number(process.env.VOICE_PITCH || 0.7),
-      speed: Number(process.env.VOICE_SPEED || 1.2),
+      speed: Number(process.env.VOICE_SPEED || 1.35),
       echo: Number(process.env.VOICE_ECHO || 0.4),
       bass: Number(process.env.VOICE_BASS || 0.5),
     },
@@ -98,10 +104,9 @@ app.post("/api/tts", express.json({ limit: "10kb" }), async (req, res) => {
 app.post("/api/stt", express.raw({ type: "audio/wav", limit: "5mb" }), async (req, res) => {
   const start = performance.now();
   try {
-    const text = await transcribeGroq(req.body as Buffer, STT_MODEL);
-    res.json({ text, ms: Math.round(performance.now() - start), provider: "groq" });
+    const { text, model } = await transcribe(req.body as Buffer, STT_MODELS);
+    res.json({ text, ms: Math.round(performance.now() - start), provider: `groq ${model}` });
   } catch (e) {
-    console.warn(`[stt] groq failed: ${(e as Error).message}`);
     res.status(502).json({ error: (e as Error).message });
   }
 });

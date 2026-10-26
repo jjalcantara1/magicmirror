@@ -15,8 +15,23 @@ type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenM
 const OPENING = "Mirror, mirror, on the wall... who is the fairest of them all? Step closer, and let the magic glass decide!";
 // A stage note before it, so the chat history still starts with the visitor.
 const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
-// The magic words. Speech-to-text writes them in many ways, so match the core of them.
-const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b/i;
+// Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
+// "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
+const MOOD_VOICE: Record<Mood, string> = {
+  grand: "dramatic",
+  happy: "cheerful",
+  laugh: "laughing",
+  surprised: "amazed",
+  sly: "mischievous",
+  wink: "playful",
+  spooky: "whisper",
+  gentle: "softly",
+  excited: "excited",
+  love: "warmly",
+};
+// The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
+// magic mirror). Speech-to-text writes them in many ways, so match the core of them.
+const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
 // Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
@@ -118,16 +133,22 @@ async function respond(v: number) {
   state.set("THINKING");
   inflight = new AbortController();
   let speaking = false;
+  let tone = ""; // the voice follows the latest mood tag, so a reply can go from grand to cheeky
   const chunker = createChunker((chunk) => {
-    for (const name of chunk.effects) if ((EFFECTS as readonly string[]).includes(name)) face.effect(name as Effect);
-    for (const name of chunk.moods) if ((MOODS as readonly string[]).includes(name)) face.setMood(name as Mood);
+    const moods = chunk.moods.filter((m): m is Mood => (MOODS as readonly string[]).includes(m));
+    if (moods.length) tone = MOOD_VOICE[moods[moods.length - 1]];
     if (chunk.alert) raiseAlert();
-    if (!chunk.text) return;
+    // The face changes when these words start to play, not when the text arrives a second earlier.
+    const show = () => {
+      for (const name of chunk.effects) if ((EFFECTS as readonly string[]).includes(name)) face.effect(name as Effect);
+      moods.forEach((m) => face.setMood(m));
+    };
+    if (!chunk.text) return show();
     if (!speaking) {
       speaking = true;
       state.set("SPEAKING");
     }
-    speaker.say(chunk.text);
+    speaker.say(chunk.text, tone, show);
   });
   try {
     const res = await fetch("/api/chat", {
@@ -152,13 +173,14 @@ async function respond(v: number) {
     operator.set("llm", `failed: ${(e as Error).message}`);
     if (!speaking) {
       state.set("SPEAKING");
-      speaker.say("Bother! A smudge upon my glass! Ask me once more!");
+      speaker.say("Bother! A smudge upon my glass! Ask me once more!", MOOD_VOICE.surprised, () => face.setMood("surprised"));
     }
   }
   if (v !== visit) return;
   const reply = chunker.spoken();
   if (reply) {
-    conversation.add({ role: "assistant", content: reply });
+    // The history keeps the mood tags, so the model keeps using them as the visit goes on.
+    conversation.add({ role: "assistant", content: chunker.tagged() });
     operator.transcript(`mirror: ${reply}`);
   }
   await speaker.finish();
@@ -177,10 +199,10 @@ async function onUtterance(audio: Float32Array) {
   let text = "";
   try {
     const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
-    const body = (await res.json()) as { text?: string; ms?: number; error?: string };
+    const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
     if (!res.ok) throw new Error(body.error);
     text = body.text ?? "";
-    operator.set("stt", `groq · ${body.ms} ms`);
+    operator.set("stt", `${body.provider} · ${body.ms} ms`);
   } catch (e) {
     console.warn("[stt]", e);
     operator.set("stt", `failed: ${(e as Error).message}`);
@@ -214,12 +236,12 @@ async function wake() {
   latencyStart = performance.now();
   latencyFrom = "the opening started";
   conversation.add({ role: "user", content: ARRIVAL });
-  conversation.add({ role: "assistant", content: OPENING });
+  conversation.add({ role: "assistant", content: `[[effect:thunder]] [[mood:grand]] ${OPENING}` });
   operator.transcript(`mirror: ${OPENING}`);
   state.set("SPEAKING");
   face.setMood("grand");
   face.effect("thunder");
-  speaker.say(OPENING);
+  speaker.say(OPENING, MOOD_VOICE.grand);
   await speaker.finish();
   if (v !== visit) return;
   await listen(v);
@@ -244,6 +266,6 @@ function nextVoice() {
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
-  speaker.say(OPENING);
+  speaker.say(OPENING, MOOD_VOICE.grand);
   void speaker.finish();
 }
