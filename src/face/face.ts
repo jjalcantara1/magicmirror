@@ -4,7 +4,7 @@ export type FaceState = "asleep" | "waking" | "listening" | "thinking" | "speaki
 export const EFFECTS = ["sparkle", "thunder", "smoke", "glow"] as const;
 export type Effect = (typeof EFFECTS)[number];
 
-export const MOODS = ["happy", "laugh", "surprised", "sly", "wink", "spooky", "gentle", "excited", "love"] as const;
+export const MOODS = ["grand", "happy", "laugh", "surprised", "sly", "wink", "spooky", "gentle", "excited", "love"] as const;
 export type Mood = (typeof MOODS)[number];
 
 export interface Face {

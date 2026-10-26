@@ -11,7 +11,7 @@ import { createState } from "./state.ts";
 type Config = { ttsVoice: string; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-const GREETING = "(A new visitor has just stepped up to the mirror. Greet them!)";
+const GREETING = "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance!)";
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
 const AUDITION_VOICES = [
@@ -145,7 +145,7 @@ async function respond(v: number) {
     operator.set("llm", `failed: ${(e as Error).message}`);
     if (!speaking) {
       state.set("SPEAKING");
-      speaker.say("Oh! My magic flickered. Ask me once more!");
+      speaker.say("Bother! A smudge upon my glass! Ask me once more!");
     }
   }
   if (v !== visit) return;
@@ -222,6 +222,6 @@ function nextVoice() {
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
-  speaker.say("Abraca-pumpkin! I am the Magic Mirror on the wall. Who is the fairest of them all?");
+  speaker.say("Speak, and the glass shall answer! I am the Magic Mirror on the wall. Who is the fairest of them all?");
   void speaker.finish();
 }

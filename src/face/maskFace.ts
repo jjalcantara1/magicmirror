@@ -328,6 +328,8 @@ const STATE_POSE: Record<FaceState, Pose> = {
 };
 
 const MOOD_POSE: Record<Mood, Pose> = {
+  // The oracle of the film: chin up, heavy-lidded, gazing over the children's heads, a dignified smile.
+  grand: pose({ browL: 0.75, browR: 0.75, slantL: 0, slantR: 0, lidL: 0.4, lidR: 0.4, lowL: 0.05, lowR: 0.05, smile: 0.3, lookY: -0.3, hy: -3, scale: 0.03, squash: -0.02 }),
   happy: pose({ browL: 0.5, browR: 0.5, slantL: 0.2, slantR: 0.2, lidL: 0, lidR: 0, lowL: 0.62, lowR: 0.62, smile: 0.95, blush: 0.45 }),
   laugh: pose({ browL: 0.6, browR: 0.6, slantL: 0.3, slantR: 0.3, lidL: 0.3, lidR: 0.3, lowL: 1, lowR: 1, smile: 1, jaw: 0.3, shape: 0.3, blush: 0.5 }),
   surprised: pose({ browL: 1, browR: 1, slantL: 0.25, slantR: 0.25, lidL: 0, lidR: 0, lowL: 0, lowR: 0, smile: 0.05, jaw: 0.7, shape: -0.85, hy: -1.5, scale: 0.01 }),
@@ -452,6 +454,17 @@ const OOO: Perf = [1.5, (u, _s, o, d) => {
 
 // When a mood starts: a one-shot entrance.
 const MOOD_IN: Record<Mood, Perf> = {
+  // The spirit rises out of the smoke and stretches tall, its eyes shut, then opening slowly.
+  grand: [1.4, (u, _s, o, d) => {
+    const rise = env(u, 0.3, 0.6);
+    d.hy -= 5 * rise;
+    d.squash -= 0.03 * bump(u, 0, 0.7);
+    o.scale += 0.04 * rise;
+    o.lidL += 0.6 * bump(u, 0, 0.6);
+    o.lidR += 0.6 * bump(u, 0, 0.6);
+    o.browL += 0.3 * rise;
+    o.browR += 0.3 * rise;
+  }],
   happy: [0.9, (u, s, o, d) => {
     BIG_HOP(u, s, o, d);
     o.lowL += 0.3 * env(u, 0.1, 0.5);
@@ -512,11 +525,16 @@ const MOOD_AGAIN: Partial<Record<Mood, readonly [number, number, number, Perf]>>
   excited: [0.7, 0.8, 1.2, [0.55, hop(4)]],
   love: [4.5, 4.5, 6, SIGH],
 };
+const GRAND_SECONDS = 2.6; // how long the grand oracle face lasts before it winks
 // How big the syllable nods and the talking sway are in each mood: the calm ones move less.
-const BEAT: Partial<Record<Mood, number>> = { gentle: 0.4, love: 0.5, spooky: 0.7, laugh: 1.2, excited: 1.2 };
+const BEAT: Partial<Record<Mood, number>> = { grand: 0.6, gentle: 0.4, love: 0.5, spooky: 0.7, laugh: 1.2, excited: 1.2 };
 // While a mood is held: slow motion on top of its pose.
 function moodHold(m: Mood, t: number, o: Pose) {
   switch (m) {
+    case "grand": // a slow, stately sway
+      o.tilt += 1.2 * Math.sin(t * 0.8);
+      o.hy += 1.2 * Math.sin(t * 1.6);
+      break;
     case "happy":
       o.tilt += 2.5 * Math.sin(t * 2.2);
       o.blush += 0.12 * Math.sin(t * 3);
@@ -639,6 +657,21 @@ const FIDGETS: readonly (readonly [number, Perf])[] = [
   }]],
   // and now and then a wink
   [0.35, WINK],
+  // admiring itself: chin up, eyes shut, a pleased smile and a little shimmy
+  [0.8, [1.8, (u, _s, o, d) => {
+    const e = env(u, 0.2, 0.75);
+    o.lidL += 0.9 * e;
+    o.lidR += 0.9 * e;
+    o.lowL += 0.4 * e;
+    o.lowR += 0.4 * e;
+    o.hy -= 3 * e;
+    o.browL += 0.4 * e;
+    o.browR += 0.4 * e;
+    o.smile += 0.25 * e;
+    o.blush += 0.2 * e;
+    o.tilt += 2 * e;
+    d.hx += 2.5 * Math.sin(u * TAU * 3) * e;
+  }]],
 ];
 const FIDGET_WEIGHT = FIDGETS.reduce((sum, [w]) => sum + w, 0);
 
@@ -706,7 +739,7 @@ const MMHMM: Perf = [0.6, (u, _s, o, d) => {
   o.lowR += 0.15 * bump(u, 0, 1);
 }];
 // A quick smile with the eyes while talking; these moods have their own eyes, or star and heart glints it would hide.
-const NO_EYE_SMILE: readonly Mood[] = ["laugh", "surprised", "spooky", "sly", "wink", "excited", "love"];
+const NO_EYE_SMILE: readonly Mood[] = ["grand", "laugh", "surprised", "spooky", "sly", "wink", "excited", "love"];
 const EYE_SMILE: Perf = [0.7, (u, _s, o) => {
   // Lift the lower lids to a smile, but never shut eyes that already smile.
   o.lowL += Math.max(0, 0.62 - o.lowL) * bump(u, 0, 1);
@@ -1017,6 +1050,25 @@ export function createMaskFace(root: HTMLElement): Face {
     return i;
   }
 
+  function startMood(next: Mood, t: number) {
+    showMood(next);
+    moodFrom = t;
+    // Hide the glints until the next frame pops them in.
+    for (const g of next === "excited" ? starGlints : next === "love" ? heartGlints : []) g.setAttribute("transform", "scale(0)");
+    stop("mood", t);
+    play("mood", MOOD_IN[next], t);
+    for (const [key, speed] of MOOD_KICK[next] ?? []) kick(key, speed);
+    const again = MOOD_AGAIN[next];
+    nextMoodAgain = again ? t + again[0] : Infinity;
+    if (next === "grand") burst = Math.max(burst, 1); // the spirit appears in a gust of smoke, as in the film
+    if (next === "spooky") addSparks(14); // a "hee-hee" twinkle, not a threat
+    if (next === "excited") {
+      addSparks(40);
+      burst = Math.max(burst, 0.5);
+    }
+    if (next === "love") addSparks(12);
+  }
+
   function flag(cls: string, ms: number) {
     root.classList.add(cls);
     clearTimeout(timers.get(cls));
@@ -1118,6 +1170,8 @@ export function createMaskFace(root: HTMLElement): Face {
         nextEyeSmile = t + 3 + Math.random() * 3;
       }
     }
+    // The grand oracle cannot keep a straight face for long: it breaks into a wink at the children.
+    if (mood === "grand" && t - moodFrom > GRAND_SECONDS) startMood("wink", t);
     if (mood) {
       moodHold(mood, t, tgt);
       const again = MOOD_AGAIN[mood];
@@ -1440,22 +1494,7 @@ export function createMaskFace(root: HTMLElement): Face {
       shapeTarget = shape;
     },
     setMood(next) {
-      showMood(next);
-      const t = now();
-      moodFrom = t;
-      // Hide the glints until the next frame pops them in.
-      for (const g of next === "excited" ? starGlints : next === "love" ? heartGlints : []) g.setAttribute("transform", "scale(0)");
-      stop("mood", t);
-      play("mood", MOOD_IN[next], t);
-      for (const [key, speed] of MOOD_KICK[next] ?? []) kick(key, speed);
-      const again = MOOD_AGAIN[next];
-      nextMoodAgain = again ? t + again[0] : Infinity;
-      if (next === "spooky") addSparks(14); // a "hee-hee" twinkle, not a threat
-      if (next === "excited") {
-        addSparks(40);
-        burst = Math.max(burst, 0.5);
-      }
-      if (next === "love") addSparks(12);
+      startMood(next, now());
     },
     hear(level) {
       heard = level;
