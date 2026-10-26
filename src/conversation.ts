@@ -44,6 +44,7 @@ const countWords = (s: string) => s.match(/\S+/g)?.length ?? 0;
 export function createChunker(onChunk: (chunk: Chunk) => void) {
   let buffer = "";
   let spoken = "";
+  let tagged = ""; // spoken, with the effect and mood tags in their places
   let words = 0;
   let stopped = false;
 
@@ -67,6 +68,9 @@ export function createChunker(onChunk: (chunk: Chunk) => void) {
     if (n > MAX_WORDS) chunk.text = chunk.text.split(" ").slice(0, MAX_WORDS).join(" ");
     words += countWords(chunk.text);
     if (chunk.text) spoken += (spoken ? " " : "") + chunk.text;
+    const tags = [...chunk.effects.map((e) => `[[effect:${e}]]`), ...chunk.moods.map((m) => `[[mood:${m}]]`)];
+    const part = [...tags, chunk.text].filter(Boolean).join(" ");
+    if (part) tagged += (tagged ? " " : "") + part;
     onChunk(chunk);
     return true;
   }
@@ -88,5 +92,6 @@ export function createChunker(onChunk: (chunk: Chunk) => void) {
       buffer = "";
     },
     spoken: () => spoken,
+    tagged: () => tagged,
   };
 }

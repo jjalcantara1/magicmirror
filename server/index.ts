@@ -59,10 +59,15 @@ app.get("/api/config", async (_req, res) => {
   // Wait a little for the voice comparison, so the page gets the deepest voice.
   await Promise.race([chooseVoice(), new Promise((resolve) => setTimeout(resolve, 6000))]);
   res.json({
-    tts: { engine: TTS_ENGINE, voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE, piperVoice: PIPER_VOICE },
+    tts: {
+      engine: TTS_ENGINE,
+      voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE,
+      piperVoice: PIPER_VOICE,
+      acting: process.env.VOICE_ACTING !== "off",
+    },
     voiceFx: {
       pitch: Number(process.env.VOICE_PITCH || 0.7),
-      speed: Number(process.env.VOICE_SPEED || 1.2),
+      speed: Number(process.env.VOICE_SPEED || 1.35),
       echo: Number(process.env.VOICE_ECHO || 0.4),
       bass: Number(process.env.VOICE_BASS || 0.5),
     },

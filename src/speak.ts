@@ -5,8 +5,11 @@ import type { TtsReply, TtsRequest } from "./tts.worker.ts";
  * echo: 0 = dry, 1 = a big echoing hall. bass: how loud a rumble an octave below the voice is, 0 = none.
  */
 export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number };
-/** engine: the main voice. voice: its voice id. piperVoice: the local backup voice. */
-export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string };
+/**
+ * engine: the main voice. voice: its voice id. piperVoice: the local backup voice.
+ * acting: Groq says each piece in the tone given to say() (cheerful, whisper...).
+ */
+export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean };
 
 // A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
 function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
@@ -61,7 +64,8 @@ export function createSpeaker(
   let voice = tts.voice;
   let engine: "worker" | "browser" = "worker";
   let generation = 0; // stop() bumps this, so audio from an old reply is dropped
-  let pending: string[] = []; // sent to the worker, audio not back yet
+  type Piece = { text: string; onStart?: () => void };
+  let pending: Piece[] = []; // sent to the worker, audio not back yet
   let outstanding = 0; // pieces not finished playing
   let finished = true; // finish() was called: no more pieces for this reply
   let waitingForFirst = false;
@@ -85,8 +89,11 @@ export function createSpeaker(
     hooks.onAudioStart();
   }
 
-  function play(samples: Float32Array, sampleRate: number, pieces: number, bass: Float32Array) {
-    if (!samples.length) return pieceDone(pieces);
+  function play(samples: Float32Array, sampleRate: number, pieces: Piece[], bass: Float32Array) {
+    if (!samples.length) {
+      pieces.forEach((p) => p.onStart?.());
+      return pieceDone(pieces.length);
+    }
     const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
     buffer.copyToChannel(new Float32Array(samples), 0);
     const source = audioContext.createBufferSource();
@@ -96,6 +103,8 @@ export function createSpeaker(
     const at = Math.max(audioContext.currentTime + 0.03, nextStart);
     source.start(at);
     nextStart = at + buffer.duration / fx.pitch;
+    const gen = generation;
+    setTimeout(() => gen === generation && pieces.forEach((p) => p.onStart?.()), (at - audioContext.currentTime) * 1000);
     if (bass.length) {
       const low = audioContext.createBuffer(1, bass.length, sampleRate);
       low.copyToChannel(new Float32Array(bass), 0);
@@ -110,13 +119,13 @@ export function createSpeaker(
     sources.add(source);
     source.onended = () => {
       sources.delete(source);
-      pieceDone(pieces);
+      pieceDone(pieces.length);
     };
     audioStarted();
   }
 
   // Fallback when Piper cannot run: Chrome's built-in voice. Local voices only, so no text leaves the laptop.
-  function speakBrowser(text: string) {
+  function speakBrowser({ text, onStart }: Piece) {
     const utterance = new SpeechSynthesisUtterance(text);
     const local = speechSynthesis.getVoices().find((v) => v.localService && v.lang.startsWith("en"));
     if (local) utterance.voice = local;
@@ -126,6 +135,7 @@ export function createSpeaker(
     utterance.onstart = () => {
       browserSpeaking = true;
       audioStarted();
+      if (gen === generation) onStart?.();
     };
     utterance.onend = utterance.onerror = () => {
       browserSpeaking = false;
@@ -141,13 +151,13 @@ export function createSpeaker(
       else if (msg.type === "failed") {
         engine = "browser";
         resolve(`browser voice (Piper failed: ${msg.error})`);
-        const texts = pending;
+        const pieces = pending;
         pending = [];
-        texts.forEach(speakBrowser);
+        pieces.forEach(speakBrowser);
       } else if (msg.generation === generation) {
-        pending.splice(0, msg.pieces);
+        const pieces = pending.splice(0, msg.pieces);
         hooks.onPiece(msg.genMs, msg.samples.length / msg.sampleRate / fx.pitch, msg.by);
-        play(msg.samples, msg.sampleRate, msg.pieces, msg.bass);
+        play(msg.samples, msg.sampleRate, pieces, msg.bass);
       }
     };
   });
@@ -205,14 +215,18 @@ export function createSpeaker(
   return {
     audioContext,
     ready,
-    say(text: string) {
+    /**
+     * tone: how to say it, like "cheerful" or "whisper"; only Groq's voice can act it.
+     * onStart: called when these words start to play, so the face can change with the voice.
+     */
+    say(text: string, tone = "", onStart?: () => void) {
       if (finished) waitingForFirst = true;
       finished = false;
       outstanding++;
-      if (engine === "browser") speakBrowser(text);
+      if (engine === "browser") speakBrowser({ text, onStart });
       else {
-        pending.push(text);
-        send({ type: "speak", generation, text, voice });
+        pending.push({ text, onStart });
+        send({ type: "speak", generation, text, voice, tone: tts.acting ? tone : "" });
       }
     },
     /** Resolves when everything said so far has finished playing. */
