@@ -11,7 +11,10 @@ import { createState } from "./state.ts";
 type Config = { ttsVoice: string; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-const GREETING = "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance!)";
+const GREETING =
+  "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance, and invite them to say the magic words: Mirror, mirror, on the wall.)";
+// The magic words. Speech-to-text writes them in many ways, so match the core of them.
+const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b/i;
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
 const AUDITION_VOICES = [
@@ -186,6 +189,11 @@ async function onUtterance(audio: Float32Array) {
     return;
   }
   operator.transcript(`child:  ${text}`);
+  // The glass stirs at once when it hears the magic words, while the reply is still on its way.
+  if (SUMMONS.test(text)) {
+    face.effect("smoke");
+    face.effect("glow");
+  }
   conversation.add({ role: "user", content: text });
   await respond(v);
 }
