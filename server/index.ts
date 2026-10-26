@@ -68,7 +68,7 @@ app.get("/api/config", async (_req, res) => {
     },
     voiceFx: {
       pitch: Number(process.env.VOICE_PITCH || 0.7),
-      speed: Number(process.env.VOICE_SPEED || 1.35),
+      speed: Number(process.env.VOICE_SPEED || 1.15),
       echo: Number(process.env.VOICE_ECHO || 0.4),
       bass: Number(process.env.VOICE_BASS || 0.5),
     },

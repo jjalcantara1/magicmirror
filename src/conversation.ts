@@ -2,7 +2,7 @@ export type Turn = { role: "user" | "assistant"; content: string };
 export type Chunk = { text: string; effects: string[]; moods: string[]; alert: boolean };
 
 const MAX_TURNS = 20; // about 10 exchanges: small, fast, and inside the free-tier token limits
-const MAX_WORDS = 40; // small local models ramble; stop at the last sentence that fits
+const MAX_WORDS = 30; // replies should be concise (the prompt asks for 20); stop at the last sentence that fits
 
 // One visitor group's history. It lives only in memory and reset() wipes it.
 export function createConversation() {
