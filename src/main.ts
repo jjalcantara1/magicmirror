@@ -29,8 +29,9 @@ const MOOD_VOICE: Record<Mood, string> = {
   excited: "excited",
   love: "warmly",
 };
-// The magic words. Speech-to-text writes them in many ways, so match the core of them.
-const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b/i;
+// The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
+// magic mirror). Speech-to-text writes them in many ways, so match the core of them.
+const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
 // Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
@@ -198,10 +199,10 @@ async function onUtterance(audio: Float32Array) {
   let text = "";
   try {
     const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
-    const body = (await res.json()) as { text?: string; ms?: number; error?: string };
+    const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
     if (!res.ok) throw new Error(body.error);
     text = body.text ?? "";
-    operator.set("stt", `groq · ${body.ms} ms`);
+    operator.set("stt", `${body.provider} · ${body.ms} ms`);
   } catch (e) {
     console.warn("[stt]", e);
     operator.set("stt", `failed: ${(e as Error).message}`);

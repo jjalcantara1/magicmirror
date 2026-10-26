@@ -11,6 +11,11 @@ export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number
  */
 export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean };
 
+// The voices are English, so spell the two short Tagalog words they get wrong as they sound:
+// "ng" is said "nang" and "mga" "manga". Neither is an English word. A contraction like "ano'ng"
+// (ano ang) is left alone.
+export const sayable = (text: string) => text.replace(/(?<![\w'’])ng\b/gi, "nang").replace(/(?<![\w'’])mga\b/gi, "manga");
+
 // A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
 function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * seconds);
@@ -219,7 +224,8 @@ export function createSpeaker(
      * tone: how to say it, like "cheerful" or "whisper"; only Groq's voice can act it.
      * onStart: called when these words start to play, so the face can change with the voice.
      */
-    say(text: string, tone = "", onStart?: () => void) {
+    say(said: string, tone = "", onStart?: () => void) {
+      const text = sayable(said);
       if (finished) waitingForFirst = true;
       finished = false;
       outstanding++;
