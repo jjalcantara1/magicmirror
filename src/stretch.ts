@@ -48,3 +48,14 @@ export function stretch(input: Float32Array, factor: number, sampleRate: number)
   for (let i = 0; i < outLength; i++) out[i] /= Math.max(weight[i], 0.1);
   return out.subarray(0, outLength);
 }
+
+// The same speech an octave lower and just as long: made half as long, then read at half speed.
+export function octaveBelow(input: Float32Array, sampleRate: number): Float32Array {
+  const half = stretch(input, 0.5, sampleRate);
+  const out = new Float32Array(input.length);
+  for (let i = 0; i < out.length; i++) {
+    const k = i >> 1;
+    out[i] = i & 1 ? 0.5 * ((half[k] ?? 0) + (half[k + 1] ?? 0)) : (half[k] ?? 0);
+  }
+  return out;
+}

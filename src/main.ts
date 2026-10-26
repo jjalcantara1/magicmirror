@@ -11,11 +11,13 @@ import { createState } from "./state.ts";
 type Config = { tts: TtsConfig; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-const GREETING =
-  "(A new visitor has just stepped up to the mirror. Greet them with a grand, fun entrance, and invite them to say the magic words: Mirror, mirror, on the wall.)";
+// Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
+const OPENING = "Mirror, mirror, on the wall... who is the fairest of them all? Step closer, and let the magic glass decide!";
+// A stage note before it, so the chat history still starts with the visitor.
+const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
 // The magic words. Speech-to-text writes them in many ways, so match the core of them.
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b/i;
-// Groq's Orpheus male voices (checked 2026-10). Press V to hear each; put the winner in GROQ_TTS_VOICE.
+// Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
@@ -210,9 +212,17 @@ async function wake() {
   await delay(1200); // let the mask fade in
   if (v !== visit) return;
   latencyStart = performance.now();
-  latencyFrom = "the greeting started";
-  conversation.add({ role: "user", content: GREETING });
-  await respond(v);
+  latencyFrom = "the opening started";
+  conversation.add({ role: "user", content: ARRIVAL });
+  conversation.add({ role: "assistant", content: OPENING });
+  operator.transcript(`mirror: ${OPENING}`);
+  state.set("SPEAKING");
+  face.setMood("grand");
+  face.effect("thunder");
+  speaker.say(OPENING);
+  await speaker.finish();
+  if (v !== visit) return;
+  await listen(v);
 }
 
 function reset() {
@@ -234,6 +244,6 @@ function nextVoice() {
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
-  speaker.say("Speak, and the glass shall answer! I am the Magic Mirror on the wall. Who is the fairest of them all?");
+  speaker.say(OPENING);
   void speaker.finish();
 }
