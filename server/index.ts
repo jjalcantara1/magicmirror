@@ -64,7 +64,7 @@ app.get("/api/config", async (_req, res) => {
       engine: TTS_ENGINE,
       voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE,
       piperVoice: PIPER_VOICE,
-      acting: process.env.VOICE_ACTING === "on",
+      acting: process.env.VOICE_ACTING !== "off",
     },
     voiceFx: {
       pitch: Number(process.env.VOICE_PITCH || 0.7),

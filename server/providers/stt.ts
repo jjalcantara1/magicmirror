@@ -5,6 +5,7 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Tagalog and Taglish down as spoken: with an English-only prompt it tends to turn Tagalog into English.
 const WHISPER_PROMPT =
   "Mirror, mirror on the wall. Salamin, salamin sa dingding, sino ang pinakamaganda sa lahat? Ako po! Ang ganda ng costume ko, diba? " +
+  "Trick or treat! Can I have candy? Lollies, chocolate, kendi. " +
   "Halloween costumes: witch, wizard, pirate, princess, vampire, ghost, multo, aswang, kalabasa, pumpkin, dinosaur, superhero, Evil Queen.";
 // Blank: Whisper hears which language it is, which suits Taglish. "tl" or "en" forces one.
 const LANGUAGE = process.env.STT_LANGUAGE || undefined;

@@ -17,18 +17,20 @@ const OPENING = "Mirror, mirror, on the wall... who is the fairest of them all? 
 const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
 // "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
+// Only upbeat tones: the mirror always sounds fun (dramatic and whisper sounded odd at the party).
 const MOOD_VOICE: Record<Mood, string> = {
-  grand: "dramatic",
+  grand: "excited",
   happy: "cheerful",
-  laugh: "laughing",
-  surprised: "amazed",
-  sly: "mischievous",
+  laugh: "cheerful",
+  surprised: "excited",
+  sly: "playful",
   wink: "playful",
-  spooky: "whisper",
-  gentle: "softly",
+  spooky: "playful",
+  gentle: "cheerful",
   excited: "excited",
-  love: "warmly",
+  love: "cheerful",
 };
+const FUN_TONE = "cheerful"; // until a reply's first mood tag
 // The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
 // magic mirror). Speech-to-text writes them in many ways, so match the core of them.
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
@@ -133,7 +135,7 @@ async function respond(v: number) {
   state.set("THINKING");
   inflight = new AbortController();
   let speaking = false;
-  let tone = ""; // the voice follows the latest mood tag, so a reply can go from grand to cheeky
+  let tone = FUN_TONE; // the voice follows the latest mood tag, so a reply can go from grand to cheeky
   const chunker = createChunker((chunk) => {
     const moods = chunk.moods.filter((m): m is Mood => (MOODS as readonly string[]).includes(m));
     if (moods.length) tone = MOOD_VOICE[moods[moods.length - 1]];

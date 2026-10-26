@@ -2,8 +2,7 @@
 // The browser side (Kokoro WebGPU/WASM, local Whisper/Moonshine) is in bench.html.
 // Nothing is written to disk.
 import { KokoroTTS } from "kokoro-js";
-import { SYSTEM_PROMPT } from "../src/prompt.ts";
-import { groqTarget, ollamaTarget, streamChat, type LlmTarget } from "../server/providers/llm.ts";
+import { groqTarget, ollamaTarget, SYSTEM_PROMPT, streamChat, type LlmTarget } from "../server/providers/llm.ts";
 import { transcribeGroq } from "../server/providers/stt.ts";
 
 const SENTENCE = "Abraca-pumpkin! What a splendid witch you are, with the pointiest hat in all the land.";

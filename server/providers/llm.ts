@@ -1,5 +1,7 @@
 import OpenAI from "openai";
-import { SYSTEM_PROMPT } from "../../src/prompt.ts";
+import { DEFAULT_CANDY_RULE, systemPrompt } from "../../src/prompt.ts";
+
+export const SYSTEM_PROMPT = systemPrompt(process.env.CANDY_RULE || DEFAULT_CANDY_RULE);
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export type Turn = { role: "user" | "assistant"; content: string };
