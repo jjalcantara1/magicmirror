@@ -63,7 +63,7 @@ export function octaveBelow(input: Float32Array, sampleRate: number): Float32Arr
 // Shortens pauses: the silence at each end goes down to `edge` seconds and any pause inside to `gap`
 // seconds, half kept after the sound before it and half before the sound after it, so soft starts
 // and endings of words stay. Voices pause long at commas and "...", and a deep voice then drags.
-export function tightenPauses(input: Float32Array, sampleRate: number, edge = 0.04, gap = 0.18): Float32Array {
+export function tightenPauses(input: Float32Array, sampleRate: number, edge = 0.04, gap = 0.3): Float32Array {
   const win = Math.round(sampleRate * 0.01);
   let peak = 0;
   for (const x of input) peak = Math.max(peak, Math.abs(x));
