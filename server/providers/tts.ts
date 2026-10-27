@@ -92,7 +92,8 @@ function medianPitch({ samples, sampleRate }: Audio): number {
 export async function findDeepestVoice(voices: readonly string[], model: string): Promise<{ voice: string; pitches: Record<string, number> }> {
   const pitches: Record<string, number> = {};
   for (const voice of voices) {
-    const wav = await speakGroq("Mirror, mirror, on the wall, who is the fairest of them all?", voice, model);
+    // Not the magic words: this line is never heard, and it should not look like the opening in Groq's logs.
+    const wav = await speakGroq("Testing my voice for the party tonight. One, two, three, four, five!", voice, model);
     pitches[voice] = Math.round(medianPitch(parseWav(new Uint8Array(wav).buffer)));
   }
   const voice = Object.keys(pitches).sort((a, b) => pitches[a] - pitches[b])[0];

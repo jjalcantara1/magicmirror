@@ -28,24 +28,30 @@ function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
   return buffer;
 }
 
-// The Queen's mirror speaks from deep inside the glass: some extra bass and an echoing hall, but kept
-// clear for children: consonants are lifted (2-4 kHz carries most of what makes words understandable,
-// and "s", "f" and "th" sit up to 8 kHz). Returns the input node.
-function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
+// The Queen's mirror speaks from deep inside the glass: warm bass and an echoing hall, kept clear
+// for children. Consonants are lifted (2-4 kHz carries most of what makes words understandable, and
+// "s", "f" and "th" sit up to 8 kHz), and the echo is shaped so it never lands on the words: it starts
+// 35 ms late, has no low boom, and fades within 1.2 s. Returns the input node.
+export function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
   const trim = new GainNode(ctx, { gain: 0.75 }); // Piper peaks at full scale; leave room for the boosts
-  const bass = new BiquadFilterNode(ctx, { type: "lowshelf", frequency: 180, gain: 3 });
+  const bass = new BiquadFilterNode(ctx, { type: "lowshelf", frequency: 160, gain: 4 });
   const presence = new BiquadFilterNode(ctx, { type: "peaking", frequency: 3000, Q: 0.9, gain: 4 });
   const soft = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 9000 });
   const out = new DynamicsCompressorNode(ctx, { threshold: -16, knee: 12, ratio: 4 });
   trim.connect(bass).connect(presence).connect(soft).connect(out).connect(ctx.destination);
   if (echo > 0) {
-    const hall = new ConvolverNode(ctx, { buffer: hallImpulse(ctx, 1.6) });
-    soft.connect(hall).connect(new BiquadFilterNode(ctx, { type: "lowpass", frequency: 3500 })).connect(new GainNode(ctx, { gain: echo })).connect(out);
-    // A faint slap-back echo: louder ones repeat each syllable over the next and blur the words.
-    const delay = new DelayNode(ctx, { delayTime: 0.17 });
-    const delayTone = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 2500 });
-    soft.connect(delay).connect(delayTone).connect(new GainNode(ctx, { gain: echo * 0.2 })).connect(out);
-    delayTone.connect(new GainNode(ctx, { gain: 0.15 })).connect(delay);
+    soft
+      .connect(new DelayNode(ctx, { delayTime: 0.035 }))
+      .connect(new BiquadFilterNode(ctx, { type: "highpass", frequency: 300 }))
+      .connect(new ConvolverNode(ctx, { buffer: hallImpulse(ctx, 1.2) }))
+      .connect(new BiquadFilterNode(ctx, { type: "lowpass", frequency: 4000 }))
+      .connect(new GainNode(ctx, { gain: echo }))
+      .connect(out);
+    // The magic-glass echo: one soft repeat of each word, heard in the gaps between words.
+    const delay = new DelayNode(ctx, { delayTime: 0.24 });
+    const tone = new BiquadFilterNode(ctx, { type: "bandpass", frequency: 1200, Q: 0.7 });
+    soft.connect(delay).connect(tone).connect(new GainNode(ctx, { gain: echo * 0.3 })).connect(out);
+    tone.connect(new GainNode(ctx, { gain: 0.2 })).connect(delay);
   }
   return trim;
 }
