@@ -1,5 +1,5 @@
 import OpenAI, { toFile } from "openai";
-import { firstGroqKey, keyName, keysFor, rest, restingFor, retryAfterSeconds } from "./groqKeys.ts";
+import { describeKey, firstGroqKey, keysFor, noteRefusal, rest, restingFor, retryAfterSeconds } from "./groqKeys.ts";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Whisper reads this as the talk so far. It biases it toward party words, and toward writing English,
@@ -60,7 +60,8 @@ export async function transcribe(wav: Buffer, models: readonly string[]): Promis
         return { text, model };
       } catch (e) {
         lastError = e;
-        usage.lastError = `${model} ${keyName(index)}: ${(e as Error).message}`;
+        noteRefusal(index, (e as Error).message);
+        usage.lastError = `${model} ${describeKey(index)}: ${(e as Error).message}`;
         console.warn(`[stt] ${usage.lastError}`);
         const status = e instanceof OpenAI.APIError ? e.status : undefined;
         if (status === 429) rest(use, index, retryAfterSeconds(e instanceof OpenAI.APIError ? e.headers : undefined));

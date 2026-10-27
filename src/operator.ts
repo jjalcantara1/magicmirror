@@ -3,7 +3,7 @@ type Status = {
   keys: string[];
   llm: { target: string; requests: number; tokens: number; remainingRequests?: number; coolingDownSec: number; lastError?: string }[];
   stt: { target: string; requestsToday: number };
-  tts: { target: string; requestsToday: number; coolingDownSec: number; lastError?: string };
+  tts: { target: string; requestsToday: number; fromDiskToday: number; coolingDownSec: number; lastError?: string };
 };
 
 // Operator hotkeys and the debug overlay. Transcripts show here only and are wiped per visitor.
@@ -41,7 +41,7 @@ export function createOperator(handlers: Handlers) {
             (p.lastError ? `  (${p.lastError.slice(0, 60)})` : ""),
         ),
         `  ${s.stt.target.padEnd(28)} ${String(s.stt.requestsToday).padStart(4)} req`,
-        `  ${s.tts.target.padEnd(28)} ${String(s.tts.requestsToday).padStart(4)} req` +
+        `  ${s.tts.target.padEnd(28)} ${String(s.tts.requestsToday).padStart(4)} req  (${s.tts.fromDiskToday} lines from disk)` +
           (s.tts.coolingDownSec ? `  COOLDOWN ${s.tts.coolingDownSec}s` : "") +
           (s.tts.lastError ? `  (${s.tts.lastError.slice(0, 60)})` : ""),
       ].join("\n");

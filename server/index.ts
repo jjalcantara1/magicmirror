@@ -6,8 +6,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribe } from "./providers/stt.ts";
-import { groqKeyCount, keyHints } from "./providers/groqKeys.ts";
-import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
+import { groqKeyCount, keyHints, keyStatus, unreadKeyNames } from "./providers/groqKeys.ts";
+import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakCached, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
 // The project folder. Paths start here, not at the working folder, so the server finds the page
@@ -109,7 +109,7 @@ app.get("/api/config", async (_req, res) => {
 });
 
 app.get("/api/status", (_req, res) => {
-  res.json({ keys: keyHints(), llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
+  res.json({ keys: keyStatus(), llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
 });
 
 // The browser's voice worker asks for each piece of speech here, so the Groq key stays on the laptop.
@@ -120,9 +120,9 @@ app.post("/api/tts", express.json({ limit: "10kb" }), async (req, res) => {
     return;
   }
   try {
-    res.type("audio/wav").send(await speakGroq(text, voice, TTS_MODEL));
+    res.type("audio/wav").send(await speakCached(text, voice, TTS_MODEL));
   } catch (e) {
-    console.warn(`[tts] groq failed: ${(e as Error).message}`);
+    console.warn(`[tts] no Groq key could speak this line, so the local voice says it (${(e as Error).message.slice(0, 120)})`);
     res.status(502).json({ error: (e as Error).message });
   }
 });
@@ -199,6 +199,8 @@ app.listen(PORT, "127.0.0.1", (error?: Error) => {
   console.log(`Magic Mirror ${prod ? "(prod)" : "(dev)"} at http://127.0.0.1:${PORT}`);
   // Only the last 4 characters, so the right key can be checked without showing it.
   console.log(groqKeyCount() ? `[groq] using ${groqKeyCount()} key${groqKeyCount() > 1 ? "s" : ""}: ${keyHints().join(", ")}` : "[groq] no GROQ_API_KEY: the local voice only, and no AI");
+  for (const name of unreadKeyNames())
+    console.warn(`[groq] ${name} looks like a Groq key but is not read: name it GROQ_API_KEY_2 (or _3...), or list all keys in GROQ_API_KEY separated by commas`);
 });
 
 // Keep the offline fallback model loaded. Re-warm in case a request reset Ollama's keep-alive.
