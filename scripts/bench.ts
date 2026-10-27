@@ -1,6 +1,7 @@
 // Speed test for the server side of the pipeline: Groq STT, Groq chat, Ollama chat, Kokoro in Node.
 // The browser side (Kokoro WebGPU/WASM, local Whisper/Moonshine) is in bench.html.
 // Nothing is written to disk.
+import "../server/env.ts"; // first: loads .env before any other module reads a setting
 import { KokoroTTS } from "kokoro-js";
 import { groqTarget, ollamaTarget, SYSTEM_PROMPT, streamChat, type LlmTarget } from "../server/providers/llm.ts";
 import { transcribeGroq } from "../server/providers/stt.ts";
