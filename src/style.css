@@ -56,4 +56,5 @@ body {
   text-align: center;
   font: italic 15px Georgia, serif;
   opacity: 0.5;
+  white-space: pre-line; /* one line each for the voice's and the ears' first download */
 }

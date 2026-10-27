@@ -4,11 +4,12 @@ import { createChunker, createConversation } from "./conversation.ts";
 import { EFFECTS, MOODS, type Effect, type Mood } from "./face/face.ts";
 import { createMaskFace } from "./face/maskFace.ts";
 import { createListener, type VadConfig } from "./listen.ts";
+import { createLocalEars } from "./localEars.ts";
 import { createOperator } from "./operator.ts";
 import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
 import { createState } from "./state.ts";
 
-type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig };
+type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig; stt: { engine: "local" | "groq"; model: string; device: string } };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
 // Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
@@ -67,6 +68,8 @@ const FUN_TONE = "playful"; // until a reply's first mood tag
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
 // Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
+// Kokoro's male voices, best rated first (its own grades: Fenrir and Michael C+, George C).
+const KOKORO_VOICES = ["am_fenrir", "am_michael", "bm_george", "am_onyx", "am_santa", "bm_lewis"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
 // slower (measured 2026-10-22). The first press of V on a new voice downloads it (~60 MB) once.
 const PIPER_VOICES = [
@@ -106,6 +109,7 @@ const speaker = createSpeaker(config.tts, config.voiceFx, {
   onLevel: (level, shape) => face.setMouth(level, shape),
   onAudioStart,
   onPiece: (genMs, audioSec, by) => operator.set("speech", `${by}: ${Math.round(genMs)} ms to make ${audioSec.toFixed(1)} s of audio`),
+  onStatus: (text) => loading("voice", text),
 });
 const state = createState((s, faceState) => {
   face.setState(faceState);
@@ -116,10 +120,27 @@ face.setState("asleep");
 operator.set("state", "SLEEPING");
 operator.set("voice", config.tts.voice);
 operator.set("tts", "loading…");
-void speaker.ready.then((engine) => {
-  operator.set("tts", engine);
-  document.querySelector("#boot")?.remove();
-});
+// The start screen stays until the voice (and the local ears) are ready, and shows the first
+// download's progress: the local models are a few hundred MB, downloaded once.
+const loadingNow = { voice: "", ears: "" };
+function loading(part: "voice" | "ears", text: string) {
+  loadingNow[part] = text;
+  operator.set(part === "voice" ? "tts" : "stt", text);
+  const boot = document.querySelector<HTMLElement>("#boot");
+  if (boot) boot.textContent = ["the mirror is gathering its magic…", loadingNow.voice, loadingNow.ears].filter(Boolean).join("\n");
+}
+const localEars = config.stt.engine === "local" ? createLocalEars(config.stt, (text) => loading("ears", text)) : undefined;
+let earsFailed = false; // then Groq's hearing is used, when there is a Groq key
+const earsReady = localEars?.ready.then(
+  (engine) => (operator.set("stt", `local ${engine}`), (loadingNow.ears = "")),
+  (e: Error) => {
+    earsFailed = true;
+    loading("ears", `the local ears did not load (${e.message.slice(0, 80)}); using Groq's if there is a key`);
+  },
+);
+void Promise.all([speaker.ready.then((engine) => (operator.set("tts", engine), (loadingNow.voice = ""))), earsReady]).then(() =>
+  document.querySelector("#boot")?.remove(),
+);
 
 const listener = await createListener(speaker.audioContext, config.vad, {
   onUtterance: (audio) => void onUtterance(audio),
@@ -250,11 +271,19 @@ async function onUtterance(audio: Float32Array) {
   let text = "";
   let sttLine = "";
   try {
-    const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
-    const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
-    if (!res.ok) throw new Error(body.error);
-    text = body.text ?? "";
-    sttLine = `${body.provider} · ${body.ms} ms`;
+    if (localEars && !earsFailed) {
+      // Heard on this computer: the audio never leaves it.
+      const heard = await localEars.hear(audio);
+      if (heard.error) throw new Error(heard.error);
+      text = heard.text;
+      sttLine = `local ${config.stt.model.split("/").pop()} · ${Math.round(heard.ms)} ms`;
+    } else {
+      const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
+      const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
+      if (!res.ok) throw new Error(body.error);
+      text = body.text ?? "";
+      sttLine = `${body.provider} · ${body.ms} ms`;
+    }
     operator.set("stt", sttLine);
   } catch (e) {
     console.warn("[stt]", e);
@@ -390,7 +419,7 @@ function reset() {
 // (GROQ_TTS_VOICE for Groq, TTS_VOICE for Piper).
 function nextVoice() {
   void speaker.resume();
-  const voices = config.tts.engine === "groq" ? GROQ_VOICES : PIPER_VOICES;
+  const voices = config.tts.engine === "groq" ? GROQ_VOICES : config.tts.engine === "kokoro" ? KOKORO_VOICES : PIPER_VOICES;
   const next = voices[(voices.indexOf(speaker.voice()) + 1) % voices.length];
   speaker.setVoice(next);
   operator.set("voice", next);

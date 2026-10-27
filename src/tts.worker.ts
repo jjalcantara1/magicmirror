@@ -1,19 +1,32 @@
-// Speech is made in a worker so that it does not freeze the face animation.
-// The main voice is Groq's Orpheus (through /api/tts): it sounds like a person. Piper runs on the
-// laptop's CPU as the backup, and as the only voice without a Groq key. Kokoro sounded richer than
-// Piper, but on the party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
+// Speech is made in a worker so that it does not freeze the face animation. Three engines:
+// - kokoro: a natural voice that runs on this computer (the local-models default). Fast on a graphics
+//   card; on the first party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
+// - piper: a smaller local voice, fast on any processor but less natural. Also the backup.
+// - groq: Groq's Orpheus through /api/tts, the most human, but limited on Groq's free tier.
 import { TtsSession } from "@mintplex-labs/piper-tts-web";
+import { KokoroTTS } from "kokoro-js";
+import { downloadProgress, pickDevice } from "./localModels.ts";
 import { octaveBelow, stretch, tightenPauses } from "./stretch.ts";
 import { tooLong } from "./runaway.ts";
 import { parseWav, type Audio } from "./wav.ts";
 
-export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; speed: number; bass: boolean };
+export type TtsInit = {
+  type: "init";
+  engine: "groq" | "piper" | "kokoro";
+  voice: string;
+  piperVoice: string;
+  device: string; // where Kokoro runs: auto | webgpu | wasm
+  pitch: number;
+  speed: number;
+  bass: boolean;
+};
 // tone: how Groq should say it, as an Orpheus direction like "cheerful" ("" = natural). Piper ignores it.
 type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string; tone: string };
 export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
   | { type: "failed"; error: string }
+  | { type: "status"; text: string } // e.g. the first download's progress
   // pieces: how many speak requests this audio covers (Groq pieces are joined into one request).
   // bass: the same audio an octave lower (empty when the bass layer is off).
   | { type: "audio"; generation: number; pieces: number; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
@@ -89,6 +102,27 @@ async function groqSpeech(text: string, voice: string, tone: string): Promise<Au
   return { samples, sampleRate: audio[0].sampleRate };
 }
 
+const KOKORO_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
+type KokoroVoice = NonNullable<NonNullable<Parameters<KokoroTTS["generate"]>[1]>["voice"]>;
+let kokoro: Promise<KokoroTTS> | undefined;
+let kokoroDevice: "webgpu" | "wasm" = "wasm";
+let kokoroFailed = false; // it would not load, so Piper is the main voice
+
+function loadKokoro(): Promise<KokoroTTS> {
+  kokoro ??= KokoroTTS.from_pretrained(KOKORO_MODEL, {
+    // fp32 on the graphics card; the smaller q8 on the processor (the settings bench.ts measures).
+    dtype: kokoroDevice === "webgpu" ? "fp32" : "q8",
+    device: kokoroDevice,
+    progress_callback: downloadProgress((p) => reply({ type: "status", text: `downloading the voice (first start only)… ${p}%` })),
+  });
+  return kokoro;
+}
+
+async function kokoroSpeech(text: string, voice: string): Promise<Audio> {
+  const out = await (await loadKokoro()).generate(text, { voice: voice as KokoroVoice });
+  return { samples: out.audio, sampleRate: out.sampling_rate };
+}
+
 async function piperSpeech(text: string, voice: string): Promise<Audio> {
   const session = await loadPiper(voice);
   return parseWav(await (await session.predict(text)).arrayBuffer());
@@ -96,6 +130,21 @@ async function piperSpeech(text: string, voice: string): Promise<Audio> {
 
 async function init(msg: TtsInit) {
   config = msg;
+  if (msg.engine === "kokoro") {
+    kokoroDevice = await pickDevice(msg.device);
+    try {
+      await kokoroSpeech("Mirror, mirror.", msg.voice); // loads, and warms up for the first visitor
+      ready = true;
+      reply({ type: "ready", engine: `kokoro ${msg.voice} (${kokoroDevice})` });
+      void pump();
+      return;
+    } catch (e) {
+      console.warn("[tts] Kokoro did not load; Piper speaks instead", e);
+      kokoroFailed = true;
+      config = { ...msg, engine: "piper" };
+      reply({ type: "status", text: `Kokoro did not load (${(e as Error).message.slice(0, 60)}); loading Piper…` });
+    }
+  }
   if (msg.engine === "groq") {
     ready = true;
     reply({ type: "ready", engine: `groq ${msg.voice} (backup: piper ${msg.piperVoice})` });
@@ -104,10 +153,11 @@ async function init(msg: TtsInit) {
     loadPiper(msg.piperVoice).catch((e) => console.warn("[tts] backup voice did not load", e));
     return;
   }
+  const piperVoice = kokoroFailed ? msg.piperVoice : msg.voice;
   try {
-    await loadPiper(msg.voice);
+    await loadPiper(piperVoice);
     ready = true;
-    reply({ type: "ready", engine: `piper ${msg.voice}` });
+    reply({ type: "ready", engine: `piper ${piperVoice}${kokoroFailed ? " (Kokoro did not load)" : ""}` });
     void pump();
   } catch (e) {
     reply({ type: "failed", error: (e as Error).message });
@@ -132,7 +182,16 @@ async function pump() {
     }
     const start = performance.now();
     let audio: Audio | undefined;
-    let by = groq ? `groq ${job.voice}` : `piper ${job.voice}`;
+    const local = config.engine === "kokoro";
+    let by = `${config.engine} ${job.voice}`;
+    if (local) {
+      try {
+        audio = await kokoroSpeech(text, job.voice);
+        by = `kokoro ${job.voice} (${kokoroDevice})`;
+      } catch (e) {
+        by = `piper backup (Kokoro: ${(e as Error).message.slice(0, 80)})`;
+      }
+    }
     if (groq) {
       const key = `${job.voice}|${direction(job.tone)}${text}`;
       const seconds = (a: Audio) => tightenPauses(a.samples, a.sampleRate).length / a.sampleRate;
@@ -157,7 +216,8 @@ async function pump() {
     }
     if (!audio) {
       try {
-        audio = await piperSpeech(text, groq ? config.piperVoice : job.voice);
+        // Piper's own voice, unless Piper is the chosen engine (then the voice V picked).
+        audio = await piperSpeech(text, config.engine === "piper" && !kokoroFailed ? job.voice : config.piperVoice);
       } catch (e) {
         console.warn("[tts] generate failed", e);
         by = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;

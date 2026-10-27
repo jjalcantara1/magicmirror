@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
+import { AI_LOCAL, chatStatus, chatWithFallback, checkOllama, OLLAMA_MODEL, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribe } from "./providers/stt.ts";
 import { groqKeyCount, keyHints, keyStatus, unreadKeyNames } from "./providers/groqKeys.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakCached, ttsStatus } from "./providers/tts.ts";
@@ -16,7 +16,18 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // Full large-v3 first: turbo loses more accuracy on less common languages like Tagalog.
 const STT_MODELS = (process.env.STT_MODEL || "whisper-large-v3,whisper-large-v3-turbo").split(",").map((m) => m.trim()).filter(Boolean);
 // The Groq voice needs a Groq key; without one, or with TTS_ENGINE=piper, the local Piper voice speaks.
-const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !groqKeyCount() ? "piper" : "groq";
+// The local-models branch runs everything on this computer by default; each job can go back to Groq.
+//   The voice: TTS_ENGINE=kokoro (in the browser) | piper (in the browser, smaller) | groq
+//   Hearing:   STT_ENGINE=local (Whisper in the browser) | groq
+//   The AI:    AI_ENGINE=local (Ollama) | groq   (see providers/llm.ts)
+const TTS_CHOICE = process.env.TTS_ENGINE || "kokoro";
+const TTS_ENGINE = TTS_CHOICE === "groq" && groqKeyCount() ? "groq" : TTS_CHOICE === "piper" ? "piper" : "kokoro";
+const KOKORO_VOICE = process.env.KOKORO_VOICE || "am_fenrir";
+const STT_ENGINE = process.env.STT_ENGINE === "groq" && groqKeyCount() ? "groq" : "local";
+const STT_LOCAL_MODEL = process.env.STT_LOCAL_MODEL || "onnx-community/whisper-small";
+// Where the browser runs the local voice and hearing: auto = the graphics card (WebGPU) when there is
+// one, else the processor (wasm).
+const LOCAL_DEVICE = ["webgpu", "wasm"].includes(process.env.LOCAL_DEVICE ?? "") ? process.env.LOCAL_DEVICE : "auto";
 // Things worth remembering across restarts (not secrets): which Groq voice is deepest.
 const MEMORY_FILE = join(ROOT, ".mirror-memory.json");
 const remembered = (): { deepestVoice?: { model: string; voices: string[]; voice: string; pitches: Record<string, number> } } => {
@@ -87,10 +98,12 @@ app.get("/api/config", async (_req, res) => {
   res.json({
     tts: {
       engine: TTS_ENGINE,
-      voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE,
+      voice: TTS_ENGINE === "groq" ? groqVoice : TTS_ENGINE === "kokoro" ? KOKORO_VOICE : PIPER_VOICE,
       piperVoice: PIPER_VOICE,
       acting: process.env.VOICE_ACTING !== "off",
+      device: LOCAL_DEVICE,
     },
+    stt: { engine: STT_ENGINE, model: STT_LOCAL_MODEL, device: LOCAL_DEVICE },
     voiceFx: {
       // Deep, but still a natural, cheeky human voice that small children follow: lower pitch, the
       // octave rumble and more echo all made it sound robotic and blurred the words.
@@ -197,14 +210,26 @@ app.listen(PORT, "127.0.0.1", (error?: Error) => {
     process.exit(1);
   }
   console.log(`Magic Mirror ${prod ? "(prod)" : "(dev)"} at http://127.0.0.1:${PORT}`);
+  console.log(
+    `[engines] AI: ${AI_LOCAL ? `local (Ollama ${OLLAMA_MODEL})` : "groq"} · hearing: ${STT_ENGINE === "local" ? `local (${STT_LOCAL_MODEL.split("/").pop()})` : "groq"}` +
+      ` · voice: ${TTS_ENGINE === "kokoro" ? `kokoro ${KOKORO_VOICE}` : TTS_ENGINE} · local models run on: ${LOCAL_DEVICE}`,
+  );
+  if (TTS_ENGINE !== "groq" || STT_ENGINE === "local")
+    console.log("[local] the first start downloads the voice and hearing models in the browser (a few hundred MB, once)");
   // Only the last 4 characters, so the right key can be checked without showing it.
-  console.log(groqKeyCount() ? `[groq] using ${groqKeyCount()} key${groqKeyCount() > 1 ? "s" : ""}: ${keyHints().join(", ")}` : "[groq] no GROQ_API_KEY: the local voice only, and no AI");
+  if (groqKeyCount()) console.log(`[groq] using ${groqKeyCount()} key${groqKeyCount() > 1 ? "s" : ""}: ${keyHints().join(", ")}`);
   for (const name of unreadKeyNames())
     console.warn(`[groq] ${name} looks like a Groq key but is not read: name it GROQ_API_KEY_2 (or _3...), or list all keys in GROQ_API_KEY separated by commas`);
 });
 
-// Keep the offline fallback model loaded. Re-warm in case a request reset Ollama's keep-alive.
-const warm = () =>
-  warmOllama().catch((e: Error) => console.warn(`[llm] could not warm Ollama: ${e.message}`));
-void warm();
-setInterval(() => void warm(), 4 * 60_000);
+// Keeps the local AI loaded (Ollama unloads an idle model) while Ollama has it. Checked now and every
+// 4 minutes, so Ollama may also be started after the mirror; the note is printed only when it changes.
+let ollamaNote = "";
+async function keepOllamaWarm() {
+  if (!OLLAMA_MODEL) return;
+  const note = await checkOllama();
+  if (note !== ollamaNote) console.log((ollamaNote = note));
+  if (/ is ready$/.test(note)) await warmOllama().catch((e: Error) => console.warn(`[llm] could not warm Ollama: ${e.message}`));
+}
+void keepOllamaWarm();
+setInterval(() => void keepOllamaWarm(), 4 * 60_000);

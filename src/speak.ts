@@ -8,8 +8,9 @@ export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number
 /**
  * engine: the main voice. voice: its voice id. piperVoice: the local backup voice.
  * acting: Groq says each piece in the tone given to say() (cheerful, whisper...).
+ * device: where the local Kokoro voice runs: auto | webgpu | wasm.
  */
-export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean };
+export type TtsConfig = { engine: "groq" | "piper" | "kokoro"; voice: string; piperVoice: string; acting: boolean; device: string };
 
 // The voices are English, so spell the two short Tagalog words they get wrong as they sound:
 // "ng" is said "nang" and "mga" "manga". Neither is an English word. A contraction like "ano'ng"
@@ -60,7 +61,13 @@ export function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
 export function createSpeaker(
   tts: TtsConfig,
   fx: VoiceFx,
-  hooks: { onLevel(level: number, shape: number): void; onAudioStart(): void; onPiece(genMs: number, audioSec: number, by: string): void },
+  hooks: {
+    onLevel(level: number, shape: number): void;
+    onAudioStart(): void;
+    onPiece(genMs: number, audioSec: number, by: string): void;
+    /** While the voice gets ready, e.g. the first download's progress. */
+    onStatus(text: string): void;
+  },
 ) {
   const audioContext = new AudioContext();
   const analyser = audioContext.createAnalyser();
@@ -162,6 +169,7 @@ export function createSpeaker(
     worker.onmessage = (e: MessageEvent<TtsReply>) => {
       const msg = e.data;
       if (msg.type === "ready") resolve(msg.engine);
+      else if (msg.type === "status") hooks.onStatus(msg.text);
       else if (msg.type === "failed") {
         engine = "browser";
         resolve(`browser voice (Piper failed: ${msg.error})`);
@@ -175,7 +183,7 @@ export function createSpeaker(
       }
     };
   });
-  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch, speed: fx.speed, bass: fx.bass > 0 });
+  send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, device: tts.device, pitch: fx.pitch, speed: fx.speed, bass: fx.bass > 0 });
 
   const frame = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);
