@@ -23,9 +23,9 @@ const CUES = {
     effect: "sparkle",
     note: "(The mirror grants the visitor a treat.)",
     lines: [
-      "The glass has spoken: take thy treat!",
+      "The glass has spoken: take your treat!",
       "Ka-BOOM! A treat for the bravest visitor of all!",
-      "Abraca-PUMPKIN! Your treat awaits. Go on, take it!",
+      "Abraca-PUMPKIN! Your treat is waiting. Go on, take it!",
       "Hee hee! You have earned a treat. Take it, quick!",
       "By my golden frame, a treat for you!",
     ],
@@ -38,7 +38,7 @@ const CUES = {
       "Happy Halloween! May your night be full of treats and giggles!",
       "Happy Halloween, brave visitor! The glass will miss you!",
       "Happy Halloween! Come back next year in your best costume!",
-      "Farewell, and Happy Halloween! Mind my glass on your way out!",
+      "Goodbye, and happy Halloween! Mind my shiny glass on your way out!",
       "Happy Halloween! The Queen says hi... and she is a little jealous!",
     ],
   },
@@ -46,17 +46,18 @@ const CUES = {
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
 // "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
-// Only upbeat tones: the mirror always sounds fun (dramatic and whisper sounded odd at the party).
+// Fun but calm tones, so small children can follow: dramatic and whisper sounded odd, and excited
+// rushes the words.
 const MOOD_VOICE: Record<Mood, string> = {
-  grand: "excited",
+  grand: "cheerful",
   happy: "cheerful",
   laugh: "cheerful",
-  surprised: "excited",
+  surprised: "cheerful",
   sly: "playful",
   wink: "playful",
   spooky: "playful",
   gentle: "cheerful",
-  excited: "excited",
+  excited: "cheerful",
   love: "cheerful",
 };
 const FUN_TONE = "cheerful"; // until a reply's first mood tag
@@ -111,6 +112,11 @@ void speaker.ready.then((engine) => {
 
 const listener = await createListener(speaker.audioContext, config.vad, {
   onUtterance: (audio) => void onUtterance(audio),
+  onHeard: (aboveDb, near) => {
+    if (aboveDb === undefined) return operator.set("heard", "measuring the room…");
+    const level = `${aboveDb.toFixed(0)} dB above the room (${config.vad.nearDb > 0 ? `needs ${config.vad.nearDb}` : "filter off"})`;
+    operator.set("heard", near ? level : `IGNORED, too far away or too quiet: ${level}`);
+  },
   onFrame: (p, level) => {
     // The face reacts only to speech, by the VAD's own thresholds, so noise does not set it off. The
     // meter is full at a level of 0.2, a loud voice; the square root lets a shy voice count too.
@@ -204,7 +210,7 @@ async function respond(v: number) {
     operator.set("llm", `failed: ${(e as Error).message}`);
     if (!speaking) {
       state.set("SPEAKING");
-      speaker.say("Bother! A smudge upon my glass! Ask me once more!", MOOD_VOICE.surprised, () => face.setMood("surprised"));
+      speaker.say("Oops! A smudge on my glass! Can you ask me again?", MOOD_VOICE.surprised, () => face.setMood("surprised"));
     }
   }
   if (v !== visit) return;

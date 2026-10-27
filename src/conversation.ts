@@ -39,8 +39,9 @@ export function parseTags(raw: string): Chunk {
 
 const countWords = (s: string) => s.match(/\S+/g)?.length ?? 0;
 
-// Splits a streamed reply into pieces to speak. The first piece ends at the first pause, so the
-// voice starts early: Kokoro on the party laptop generates audio at only about real time.
+// Splits a streamed reply into pieces to speak. Pieces end at sentence ends, so each one is spoken
+// with natural intonation (a piece cut at a comma sounds choppy and is harder for children to follow).
+// Only a long first sentence breaks at a comma, after 8 words, so the voice still starts soon.
 export function createChunker(onChunk: (chunk: Chunk) => void) {
   let buffer = "";
   let spoken = "";
@@ -49,11 +50,10 @@ export function createChunker(onChunk: (chunk: Chunk) => void) {
   let stopped = false;
 
   function boundary(): number {
-    const pattern = words === 0 ? /[,;!?.…](?=\s)/g : /[!?.…](?=\s)/g;
-    for (const m of buffer.matchAll(pattern)) {
+    for (const m of buffer.matchAll(/[,;!?.…](?=\s)/g)) {
       const end = m.index + 1;
-      if (words === 0 && countWords(parseTags(buffer.slice(0, end)).text) < 2) continue;
-      return end;
+      const n = countWords(parseTags(buffer.slice(0, end)).text);
+      if (/[!?.…]/.test(m[0]) ? words > 0 || n >= 2 : words === 0 && n >= 8) return end;
     }
     return -1;
   }

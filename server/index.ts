@@ -67,16 +67,18 @@ app.get("/api/config", async (_req, res) => {
       acting: process.env.VOICE_ACTING !== "off",
     },
     voiceFx: {
-      pitch: Number(process.env.VOICE_PITCH || 0.7),
-      speed: Number(process.env.VOICE_SPEED || 1.15),
-      echo: Number(process.env.VOICE_ECHO || 0.4),
-      bass: Number(process.env.VOICE_BASS || 0.5),
+      // Deep but clear enough for small children: deeper pitch, more bass and more echo all blur words.
+      pitch: Number(process.env.VOICE_PITCH || 0.75),
+      speed: Number(process.env.VOICE_SPEED || 1),
+      echo: Number(process.env.VOICE_ECHO || 0.25),
+      bass: Number(process.env.VOICE_BASS || 0.2),
     },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
       negative: Number(process.env.VAD_NEGATIVE_THRESHOLD || 0.35),
       redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 700),
+      nearDb: Number(process.env.MIC_NEAR_DB || 7),
     },
   });
 });
