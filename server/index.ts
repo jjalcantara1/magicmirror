@@ -40,6 +40,7 @@ function chooseVoice(): Promise<void> {
     groqVoice = known.voice;
     return Promise.resolve();
   }
+  if (!voiceChosen) console.log("[tts] checking which Groq voice is deepest (3 short requests, once; never played)");
   voiceChosen ??= findDeepestVoice(GROQ_MALE_VOICES, TTS_MODEL).then(
     ({ voice, pitches }) => {
       groqVoice = voice;
@@ -94,10 +95,9 @@ app.get("/api/config", async (_req, res) => {
       // octave rumble and more echo all made it sound robotic and blurred the words.
       pitch: Number(process.env.VOICE_PITCH || 0.85),
       speed: Number(process.env.VOICE_SPEED || 1),
-      echo: Number(process.env.VOICE_ECHO || 0.15),
+      echo: Number(process.env.VOICE_ECHO || 0.3), // the echo is shaped to stay off the words (speak.ts)
       bass: Number(process.env.VOICE_BASS || 0),
     },
-    listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
       negative: Number(process.env.VAD_NEGATIVE_THRESHOLD || 0.35),

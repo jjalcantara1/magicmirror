@@ -8,11 +8,12 @@ import { createOperator } from "./operator.ts";
 import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
 import { createState } from "./state.ts";
 
-type Config = { tts: TtsConfig; voiceFx: VoiceFx; listenMode: string; vad: VadConfig };
+type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
 // Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
-const OPENING = "Mirror, mirror, on the wall... who is the fairest of them all? Step closer, and let the magic glass decide!";
+// No "..." in it: an ellipsis after repeated words can set the Groq voice looping.
+const OPENING = "Mirror, mirror, on the wall, who is the fairest of them all? Step closer, and let the magic glass decide!";
 // A stage note before it, so the chat history still starts with the visitor.
 const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
 // Lines for the operator's keys: C grants a treat, H wishes Happy Halloween. Scripted, so they start
@@ -78,7 +79,7 @@ const PIPER_VOICES = [
   "en_GB-alba-medium",
   "en_US-lessac-medium",
 ];
-const ECHO_TAIL_MS = 500; // let the hall echo die away before the mic listens again (half-duplex)
+const ECHO_TAIL_MS = 900; // let the hall echo die away before the mic listens again, so the mirror never hears itself
 // Children stop to think mid-sentence ("I'm a... um..."). When the words so far sound unfinished, the
 // mirror listens on for THINK_MS more (longer while they are still talking) and answers both parts
 // together. A question mark or "!" counts as finished.

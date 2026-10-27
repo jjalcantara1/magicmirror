@@ -4,6 +4,7 @@
 // Piper, but on the party laptop's Intel GPU it ran 1-4x slower than real time (measured 2026-10-22).
 import { TtsSession } from "@mintplex-labs/piper-tts-web";
 import { octaveBelow, stretch, tightenPauses } from "./stretch.ts";
+import { tooLong } from "./runaway.ts";
 import { parseWav, type Audio } from "./wav.ts";
 
 export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; piperVoice: string; pitch: number; speed: number; bass: boolean };
@@ -134,8 +135,19 @@ async function pump() {
     let by = groq ? `groq ${job.voice}` : `piper ${job.voice}`;
     if (groq) {
       const key = `${job.voice}|${direction(job.tone)}${text}`;
+      const seconds = (a: Audio) => tightenPauses(a.samples, a.sampleRate).length / a.sampleRate;
       try {
-        audio = said.get(key) ?? (await groqSpeech(text, job.voice, job.tone));
+        let take = said.get(key);
+        if (!take) {
+          take = await groqSpeech(text, job.voice, job.tone);
+          // A looping take is asked for again without the tone; it is never played or kept.
+          if (tooLong(text, seconds(take))) {
+            console.warn(`[tts] Groq looped (${seconds(take).toFixed(1)} s for "${text}"); asking again`);
+            take = await groqSpeech(text, job.voice, "");
+            if (tooLong(text, seconds(take))) throw new Error("Groq looped twice");
+          }
+        }
+        audio = take;
         said.delete(key);
         said.set(key, audio); // newest last, so the oldest goes first
         if (said.size > SAID_MAX) said.delete(said.keys().next().value!);
