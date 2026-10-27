@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { DEFAULT_CANDY_RULE, systemPrompt } from "../../src/prompt.ts";
+import { firstGroqKey, groqKeyCount, keyName, keysFor, retryAfterSeconds } from "./groqKeys.ts";
 
 export const SYSTEM_PROMPT = systemPrompt(process.env.CANDY_RULE || DEFAULT_CANDY_RULE);
 
@@ -9,6 +10,7 @@ export type Turn = { role: "user" | "assistant"; content: string };
 export type LlmTarget = {
   provider: "groq" | "ollama";
   model: string;
+  label: string; // "groq:model" (with "key 2" when there are several keys)
   client: OpenAI;
   // Provider-specific body fields that the openai types do not declare.
   extra: Record<string, unknown>;
@@ -30,7 +32,12 @@ const FREE_TIER_DAILY = { requests: 1000, tokens: 200_000 };
 const HEADROOM = 0.9;
 
 const ollamaUrl = () => process.env.OLLAMA_URL ?? "http://localhost:11434";
-const label = (t: LlmTarget) => `${t.provider}:${t.model}`;
+const label = (t: LlmTarget) => t.label;
+const groqModels = () =>
+  (process.env.LLM_MODEL || DEFAULT_GROQ_MODELS)
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
 
 // Groq's free chat models are all reasoning models. Keep reasoning short and out of the spoken text.
 function groqExtra(model: string): Record<string, unknown> {
@@ -39,15 +46,28 @@ function groqExtra(model: string): Record<string, unknown> {
   return {};
 }
 
-export function groqTarget(model: string): LlmTarget | undefined {
-  const apiKey = process.env.GROQ_API_KEY;
+const clients = new Map<string, OpenAI>();
+function groqClient(apiKey: string): OpenAI {
+  let client = clients.get(apiKey);
+  if (!client) clients.set(apiKey, (client = new OpenAI({ apiKey, baseURL: GROQ_BASE_URL, maxRetries: 0 })));
+  return client;
+}
+
+const groqLabel = (model: string, keyIndex: number) => `groq:${model}${groqKeyCount() > 1 ? ` (${keyName(keyIndex)})` : ""}`;
+
+export function groqTarget(model: string, apiKey = firstGroqKey(), keyIndex = 0): LlmTarget | undefined {
   if (!apiKey) return undefined;
-  return { provider: "groq", model, client: new OpenAI({ apiKey, baseURL: GROQ_BASE_URL, maxRetries: 0 }), extra: groqExtra(model) };
+  return { provider: "groq", model, label: groqLabel(model, keyIndex), client: groqClient(apiKey), extra: groqExtra(model) };
 }
 
 export function ollamaTarget(model: string): LlmTarget {
-  return { provider: "ollama", model, client: new OpenAI({ apiKey: "ollama", baseURL: `${ollamaUrl()}/v1`, maxRetries: 0 }), extra: {} };
+  const client = new OpenAI({ apiKey: "ollama", baseURL: `${ollamaUrl()}/v1`, maxRetries: 0 });
+  return { provider: "ollama", model, label: `ollama:${model}`, client, extra: {} };
 }
+
+// Replies are at most 30 words (about 60 tokens with tags). Groq counts this cap against the
+// tokens-per-minute limit, so keep it small; gpt-oss also spends some of it on short reasoning.
+const maxTokens = (t: LlmTarget) => (t.provider !== "groq" ? 150 : t.model.startsWith("openai/gpt-oss") ? 400 : 150);
 
 export async function streamChat(
   target: LlmTarget,
@@ -68,8 +88,7 @@ export async function streamChat(
         stream: true,
         stream_options: { include_usage: true },
         temperature: 0.9,
-        // Reasoning tokens count toward this cap on Groq, so leave headroom above a two-sentence reply.
-        max_completion_tokens: target.provider === "groq" ? 512 : 150,
+        max_completion_tokens: maxTokens(target),
         ...target.extra,
       },
       { signal: signal ?? AbortSignal.timeout(20_000) },
@@ -96,12 +115,12 @@ const health = new Map<string, Health>();
 
 // shortcut: counts live in memory and restart from zero when the server restarts. Groq's
 // x-ratelimit-remaining-requests header still guards the request limit. Persist them if restarts become common.
-function healthOf(target: LlmTarget): Health {
+function healthOf(name: string): Health {
   const day = new Date().toISOString().slice(0, 10);
-  const h = health.get(label(target));
+  const h = health.get(name);
   if (h && h.day === day) return h;
   const fresh: Health = { day, requests: 0, tokens: 0, cooldownUntil: h?.cooldownUntil ?? 0 };
-  health.set(label(target), fresh);
+  health.set(name, fresh);
   return fresh;
 }
 
@@ -117,24 +136,26 @@ function usable(target: LlmTarget, h: Health): boolean {
 }
 
 function cooldownMs(e: unknown): number {
-  if (e instanceof OpenAI.APIError && e.status === 429) {
-    const retryAfter = Number(e.headers?.get("retry-after"));
-    return retryAfter > 0 ? retryAfter * 1000 : 60_000;
-  }
+  if (e instanceof OpenAI.APIError && e.status === 429) return retryAfterSeconds(e.headers) * 1000;
+  if (e instanceof OpenAI.APIError && (e.status === 401 || e.status === 403)) return 600_000; // a bad key
   return 30_000;
 }
 
-let targets: LlmTarget[] | undefined;
+const ollama = process.env.OLLAMA_CHAT_MODEL ? ollamaTarget(process.env.OLLAMA_CHAT_MODEL) : undefined;
+
+// The order to try for one reply: each model in turn, and for each model the keys in turn (starting
+// one further along each time, so the load is shared), then the local model.
 function chatTargets(): LlmTarget[] {
-  targets ??= [
-    ...(process.env.LLM_MODEL || DEFAULT_GROQ_MODELS)
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean)
-      .flatMap((m) => groqTarget(m) ?? []),
-    ...(process.env.OLLAMA_CHAT_MODEL ? [ollamaTarget(process.env.OLLAMA_CHAT_MODEL)] : []),
+  return [
+    ...groqModels().flatMap((m) => keysFor(`chat:${m}`).flatMap(({ key, index }) => groqTarget(m, key, index) ?? [])),
+    ...(ollama ? [ollama] : []),
   ];
-  return targets;
+}
+
+// Every model and key, for the status panel.
+function allLabels(): string[] {
+  const keyed = Array.from({ length: groqKeyCount() }, (_, i) => i);
+  return [...groqModels().flatMap((m) => keyed.map((i) => groqLabel(m, i))), ...(ollama ? [ollama.label] : [])];
 }
 
 // Tries each provider in order. It moves to the next one only before the first word arrives,
@@ -147,7 +168,7 @@ export async function chatWithFallback(
   const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, ...turns];
   let lastError: unknown = new Error("No chat provider is available");
   for (const target of chatTargets()) {
-    const h = healthOf(target);
+    const h = healthOf(label(target));
     if (!usable(target, h)) continue;
     let started = false;
     const timeout = AbortSignal.timeout(target.provider === "groq" ? 10_000 : 30_000);
@@ -171,10 +192,10 @@ export async function chatWithFallback(
 }
 
 export function chatStatus() {
-  return chatTargets().map((t) => {
-    const h = healthOf(t);
+  return allLabels().map((name) => {
+    const h = healthOf(name);
     return {
-      target: label(t),
+      target: name,
       requests: h.requests,
       tokens: h.tokens,
       remainingRequests: h.remainingRequests,

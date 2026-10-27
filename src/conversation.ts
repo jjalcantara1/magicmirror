@@ -1,7 +1,9 @@
 export type Turn = { role: "user" | "assistant"; content: string };
 export type Chunk = { text: string; effects: string[]; moods: string[]; alert: boolean };
 
-const MAX_TURNS = 20; // about 10 exchanges: small, fast, and inside the free-tier token limits
+// Every reply resends the history, so keep it short: 8 turns is the last 4 exchanges, plenty for a
+// child's visit, and keeps each request well inside Groq's tokens-per-minute limit.
+const MAX_TURNS = 8;
 const MAX_WORDS = 30; // replies should be concise (the prompt asks for 20); stop at the last sentence that fits
 
 // One visitor group's history. It lives only in memory and reset() wipes it.
