@@ -28,21 +28,24 @@ function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
   return buffer;
 }
 
-// The Queen's mirror booms from deep inside the glass: more bass, softer highs, and an echoing hall.
-// Returns the input node.
+// The Queen's mirror speaks from deep inside the glass: some extra bass and an echoing hall, but kept
+// clear for children: consonants are lifted (2-4 kHz carries most of what makes words understandable,
+// and "s", "f" and "th" sit up to 8 kHz). Returns the input node.
 function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
-  const trim = new GainNode(ctx, { gain: 0.75 }); // Piper peaks at full scale; leave room for the bass boost
-  const bass = new BiquadFilterNode(ctx, { type: "lowshelf", frequency: 180, gain: 6 });
-  const soft = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 6500 });
+  const trim = new GainNode(ctx, { gain: 0.75 }); // Piper peaks at full scale; leave room for the boosts
+  const bass = new BiquadFilterNode(ctx, { type: "lowshelf", frequency: 180, gain: 3 });
+  const presence = new BiquadFilterNode(ctx, { type: "peaking", frequency: 3000, Q: 0.9, gain: 4 });
+  const soft = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 9000 });
   const out = new DynamicsCompressorNode(ctx, { threshold: -16, knee: 12, ratio: 4 });
-  trim.connect(bass).connect(soft).connect(out).connect(ctx.destination);
+  trim.connect(bass).connect(presence).connect(soft).connect(out).connect(ctx.destination);
   if (echo > 0) {
     const hall = new ConvolverNode(ctx, { buffer: hallImpulse(ctx, 1.6) });
     soft.connect(hall).connect(new BiquadFilterNode(ctx, { type: "lowpass", frequency: 3500 })).connect(new GainNode(ctx, { gain: echo })).connect(out);
+    // A faint slap-back echo: louder ones repeat each syllable over the next and blur the words.
     const delay = new DelayNode(ctx, { delayTime: 0.17 });
     const delayTone = new BiquadFilterNode(ctx, { type: "lowpass", frequency: 2500 });
-    soft.connect(delay).connect(delayTone).connect(new GainNode(ctx, { gain: echo * 0.45 })).connect(out);
-    delayTone.connect(new GainNode(ctx, { gain: 0.25 })).connect(delay);
+    soft.connect(delay).connect(delayTone).connect(new GainNode(ctx, { gain: echo * 0.2 })).connect(out);
+    delayTone.connect(new GainNode(ctx, { gain: 0.15 })).connect(delay);
   }
   return trim;
 }

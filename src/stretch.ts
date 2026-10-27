@@ -55,7 +55,9 @@ export function octaveBelow(input: Float32Array, sampleRate: number): Float32Arr
   const out = new Float32Array(input.length);
   for (let i = 0; i < out.length; i++) {
     const k = i >> 1;
-    out[i] = i & 1 ? 0.5 * ((half[k] ?? 0) + (half[k + 1] ?? 0)) : (half[k] ?? 0);
+    // In between two samples, their average; past the end, hold the last one (0 would click).
+    const a = half[Math.min(k, half.length - 1)] ?? 0;
+    out[i] = i & 1 ? 0.5 * (a + (half[Math.min(k + 1, half.length - 1)] ?? 0)) : a;
   }
   return out;
 }
@@ -63,7 +65,7 @@ export function octaveBelow(input: Float32Array, sampleRate: number): Float32Arr
 // Shortens pauses: the silence at each end goes down to `edge` seconds and any pause inside to `gap`
 // seconds, half kept after the sound before it and half before the sound after it, so soft starts
 // and endings of words stay. Voices pause long at commas and "...", and a deep voice then drags.
-export function tightenPauses(input: Float32Array, sampleRate: number, edge = 0.04, gap = 0.3): Float32Array {
+export function tightenPauses(input: Float32Array, sampleRate: number, edge = 0.04, gap = 0.4): Float32Array {
   const win = Math.round(sampleRate * 0.01);
   let peak = 0;
   for (const x of input) peak = Math.max(peak, Math.abs(x));

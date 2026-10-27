@@ -3,10 +3,15 @@ import OpenAI, { toFile } from "openai";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Whisper reads this as the talk so far. It biases it toward party words, and toward writing English,
 // Tagalog and Taglish down as spoken: with an English-only prompt it tends to turn Tagalog into English.
-const WHISPER_PROMPT =
-  "Mirror, mirror on the wall. Salamin, salamin sa dingding, sino ang pinakamaganda sa lahat? Ako po! Ang ganda ng costume ko, diba? " +
-  "Trick or treat! Can I have candy? Lollies, chocolate, kendi. " +
-  "Halloween costumes: witch, wizard, pirate, princess, vampire, ghost, multo, aswang, kalabasa, pumpkin, dinosaur, superhero, Evil Queen.";
+const SAYINGS = "Mirror, mirror on the wall. Salamin, salamin sa dingding, sino ang pinakamaganda sa lahat? Ako po! Ang ganda ng costume ko, diba? Trick or treat! Can I have candy? ";
+const WORD_LIST = "Lollies, chocolate, kendi. Halloween costumes: witch, wizard, pirate, princess, vampire, ghost, multo, aswang, kalabasa, pumpkin, dinosaur, superhero, Evil Queen.";
+const WHISPER_PROMPT = SAYINGS + WORD_LIST;
+// From noise, Whisper sometimes "hears" its own prompt back. Children really say the sayings, but
+// nobody says four words of the word list in a row, so those count as an echo.
+const words = (s: string) => s.toLowerCase().match(/[a-z']+/g) ?? [];
+const runs = (list: string[]) => list.map((_, i) => list.slice(i, i + 4).join(" ")).slice(0, -3);
+const LIST_RUNS = new Set(runs(words(WORD_LIST)));
+export const echoesPrompt = (text: string) => runs(words(text)).some((run) => LIST_RUNS.has(run));
 // Blank: Whisper hears which language it is, which suits Taglish. "tl" or "en" forces one.
 const LANGUAGE = process.env.STT_LANGUAGE || undefined;
 
@@ -26,13 +31,17 @@ export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortS
   // Whisper invents text ("Thank you.") from silence and noise. Groq returns no_speech_prob = 0 for
   // every segment (checked 2026-10-22), so drop segments below Whisper's own log-probability
   // threshold (-1.0), and segments that end after the audio ends.
+  // Also drop segments that repeat themselves (compression ratio over Whisper's own 2.4), a sign of
+  // text made up from noise, and any answer that is the prompt read back.
   const segments = result.segments ?? [];
-  if (!segments.length) return result.text.trim();
-  return segments
-    .filter((s) => s.avg_logprob >= -1 && s.end <= result.duration + 0.5)
-    .map((s) => s.text)
-    .join("")
-    .trim();
+  const text = segments.length
+    ? segments
+        .filter((s) => s.avg_logprob >= -1 && s.end <= result.duration + 0.5 && !(s.compression_ratio > 2.4))
+        .map((s) => s.text)
+        .join("")
+        .trim()
+    : result.text.trim();
+  return echoesPrompt(text) ? "" : text;
 }
 
 // Tries each model in order, so a model that fails (rate limit, retired) falls back to the next.
