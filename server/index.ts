@@ -67,17 +67,18 @@ app.get("/api/config", async (_req, res) => {
       acting: process.env.VOICE_ACTING !== "off",
     },
     voiceFx: {
-      // Deep but clear enough for small children: deeper pitch, more bass and more echo all blur words.
-      pitch: Number(process.env.VOICE_PITCH || 0.75),
+      // Deep, but still a natural, cheeky human voice that small children follow: lower pitch, the
+      // octave rumble and more echo all made it sound robotic and blurred the words.
+      pitch: Number(process.env.VOICE_PITCH || 0.85),
       speed: Number(process.env.VOICE_SPEED || 1),
-      echo: Number(process.env.VOICE_ECHO || 0.25),
-      bass: Number(process.env.VOICE_BASS || 0.2),
+      echo: Number(process.env.VOICE_ECHO || 0.15),
+      bass: Number(process.env.VOICE_BASS || 0),
     },
     listenMode: process.env.LISTEN_MODE || "half-duplex",
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
       negative: Number(process.env.VAD_NEGATIVE_THRESHOLD || 0.35),
-      redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 700),
+      redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 1200), // children pause to think mid-sentence
       nearDb: Number(process.env.MIC_NEAR_DB || 7),
     },
   });

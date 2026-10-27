@@ -1,4 +1,4 @@
-type Handlers = { wake(): void; reset(): void; nextVoice(): void; candy(): void; halloween(): void };
+type Handlers = { wake(): void; reset(): void; newVisitor(): void; nextVoice(): void; candy(): void; halloween(): void };
 type Status = {
   llm: { target: string; requests: number; tokens: number; remainingRequests?: number; coolingDownSec: number; lastError?: string }[];
   stt: { target: string; requestsToday: number };
@@ -9,7 +9,9 @@ type Status = {
 export function createOperator(handlers: Handlers) {
   const panel = document.querySelector<HTMLPreElement>("#debug")!;
   const alertDot = document.querySelector<HTMLDivElement>("#alert")!;
-  const fields = new Map<string, string>([["keys", "G wake · C treat · H happy halloween · R sleep · V next voice · D this panel"]]);
+  const fields = new Map<string, string>([
+    ["keys", "G wake · N new visitor · C treat · H happy halloween · R sleep · X restart · V next voice · D this panel"],
+  ]);
   let transcript: string[] = [];
   let status = "";
   let scheduled = false;
@@ -59,6 +61,14 @@ export function createOperator(handlers: Handlers) {
       case "r":
         alertDot.hidden = true;
         handlers.reset();
+        break;
+      case "n":
+        alertDot.hidden = true;
+        handlers.newVisitor();
+        break;
+      case "x":
+        // A full restart, for when something is stuck (sound, mic, face): the page loads again, asleep.
+        location.reload();
         break;
       case "v":
         handlers.nextVoice();

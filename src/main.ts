@@ -46,13 +46,13 @@ const CUES = {
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
 // "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
-// Fun but calm tones, so small children can follow: dramatic and whisper sounded odd, and excited
-// rushes the words.
+// Fun, cheeky and calm, so small children can follow: playful for anything teasing or funny,
+// cheerful for warm moments. Dramatic and whisper sounded odd, and excited rushes the words.
 const MOOD_VOICE: Record<Mood, string> = {
   grand: "cheerful",
   happy: "cheerful",
-  laugh: "cheerful",
-  surprised: "cheerful",
+  laugh: "playful",
+  surprised: "playful",
   sly: "playful",
   wink: "playful",
   spooky: "playful",
@@ -60,7 +60,7 @@ const MOOD_VOICE: Record<Mood, string> = {
   excited: "cheerful",
   love: "cheerful",
 };
-const FUN_TONE = "cheerful"; // until a reply's first mood tag
+const FUN_TONE = "playful"; // until a reply's first mood tag
 // The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
 // magic mirror). Speech-to-text writes them in many ways, so match the core of them.
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
@@ -79,6 +79,13 @@ const PIPER_VOICES = [
   "en_US-lessac-medium",
 ];
 const ECHO_TAIL_MS = 500; // let the hall echo die away before the mic listens again (half-duplex)
+// Children stop to think mid-sentence ("I'm a... um..."). When the words so far sound unfinished, the
+// mirror listens on for THINK_MS more (longer while they are still talking) and answers both parts
+// together. A question mark or "!" counts as finished.
+const UNFINISHED =
+  /(?:\.\.\.|…|-|\b(?:um+|uh+|erm?|hmm+|and|or|but|so|because|the|a|an|my|your|is|are|was|i'm|im|i|to|of|with|like|ano|yung|kasi|tapos|at|ang|ng|sa|si|mga))[\s.,]*$/i;
+const THINK_MS = 3000;
+const MAX_HOLDS = 3;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Declared before anything that awaits, so the hotkeys work while the mirror boots.
@@ -86,11 +93,14 @@ let visit = 0; // bumped by every wake and reset, so stale async work can tell i
 let inflight: AbortController | undefined;
 let latencyStart = 0;
 let latencyFrom = "";
+let held = { visit: -1, text: "", holds: 0 }; // an unfinished sentence, waiting for the rest
+let holdUntil = 0;
+let transcribing = false;
 
 const config = (await (await fetch("/api/config")).json()) as Config;
 const face = createMaskFace(document.querySelector("#mirror")!);
 const conversation = createConversation();
-const operator = createOperator({ wake: () => void wake(), reset, nextVoice, candy: () => void cue("candy"), halloween: () => void cue("halloween") });
+const operator = createOperator({ wake: () => void wake(), reset, newVisitor, nextVoice, candy: () => void cue("candy"), halloween: () => void cue("halloween") });
 const speaker = createSpeaker(config.tts, config.voiceFx, {
   onLevel: (level, shape) => face.setMouth(level, shape),
   onAudioStart,
@@ -118,6 +128,8 @@ const listener = await createListener(speaker.audioContext, config.vad, {
     operator.set("heard", near ? level : `IGNORED, too far away or too quiet: ${level}`);
   },
   onFrame: (p, level) => {
+    // While a sentence is held, the child talking again keeps the mirror waiting.
+    if (held.text && p >= config.vad.positive) holdUntil = performance.now() + THINK_MS;
     // The face reacts only to speech, by the VAD's own thresholds, so noise does not set it off. The
     // meter is full at a level of 0.2, a loud voice; the square root lets a shy voice count too.
     // The face starts to react above 0.12, so check "face" on the mic line at the party.
@@ -159,9 +171,9 @@ function raiseAlert() {
   console.warn("[ALERT] The mirror flagged a worrying message. Please check on the child. Last words:", last?.content);
 }
 
-async function listen(v: number) {
+async function listen(v: number, tailMs = ECHO_TAIL_MS) {
   state.set("LISTENING");
-  await delay(ECHO_TAIL_MS);
+  await delay(tailMs);
   if (v !== visit || state.get() !== "LISTENING") return;
   await listener.start();
 }
@@ -232,25 +244,64 @@ async function onUtterance(audio: Float32Array) {
   // The VAD fires after redemptionMs of silence; the child stopped talking that long ago.
   latencyStart = performance.now() - config.vad.redemptionMs;
   latencyFrom = "the child stopped";
-  state.set("THINKING");
+  // The face keeps listening while the words are written down: they may turn out unfinished.
+  transcribing = true;
   let text = "";
+  let sttLine = "";
   try {
     const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
     const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
     if (!res.ok) throw new Error(body.error);
     text = body.text ?? "";
-    operator.set("stt", `${body.provider} · ${body.ms} ms`);
+    sttLine = `${body.provider} · ${body.ms} ms`;
+    operator.set("stt", sttLine);
   } catch (e) {
     console.warn("[stt]", e);
     operator.set("stt", `failed: ${(e as Error).message}`);
   }
+  transcribing = false;
   if (v !== visit) return;
+  const before = held.visit === v ? held.text : "";
+  const holds = held.visit === v ? held.holds : 0;
+  held = { visit: v, text: "", holds: 0 };
   if (!text) {
-    // Noise, or nothing understood: keep listening without a word.
+    // Noise, or nothing understood: keep listening without a word, or answer what was said before.
     latencyStart = 0;
-    await listen(v);
+    if (before) await answer(v, before);
+    else await listen(v);
     return;
   }
+  text = before ? `${before} ${text}` : text;
+  if (UNFINISHED.test(text) && holds < MAX_HOLDS) {
+    held = { visit: v, text, holds: holds + 1 };
+    holdUntil = performance.now() + THINK_MS;
+    operator.set("stt", `${sttLine} · sounds unfinished, waiting for more`);
+    void finishHeld(v);
+    await listen(v, 0); // no echo to wait for: the mirror has not spoken
+    return;
+  }
+  await answer(v, text);
+}
+
+// Answers a held sentence once the child has been quiet for THINK_MS.
+async function finishHeld(v: number) {
+  while (performance.now() < holdUntil) {
+    await delay(200);
+    if (v !== visit || held.visit !== v || !held.text) return;
+  }
+  // Already answered (a second pause starts a second wait), or more words are being written down
+  // right now, which onUtterance joins on.
+  if (v !== visit || held.visit !== v || !held.text || transcribing || state.get() !== "LISTENING") return;
+  const text = held.text;
+  held = { visit: v, text: "", holds: 0 };
+  void listener.pause();
+  latencyStart = performance.now();
+  latencyFrom = "the wait for more ended";
+  await answer(v, text);
+}
+
+async function answer(v: number, text: string) {
+  state.set("THINKING");
   operator.transcript(`child:  ${text}`);
   // The glass stirs at once when it hears the magic words, while the reply is still on its way.
   if (SUMMONS.test(text)) {
@@ -315,6 +366,13 @@ async function cue(kind: keyof typeof CUES) {
   await speaker.finish();
   if (v !== visit) return;
   await listen(v);
+}
+
+// N: forget this visitor and start fresh for the next one, with the opening line, in one press
+// (R then G). The face dips into the glass and comes straight back.
+function newVisitor() {
+  reset();
+  void wake();
 }
 
 function reset() {
