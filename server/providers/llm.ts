@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { DEFAULT_CANDY_RULE, systemPrompt } from "../../src/prompt.ts";
-import { firstGroqKey, groqKeyCount, keyName, keysFor, retryAfterSeconds } from "./groqKeys.ts";
+import { firstGroqKey, groqKeyCount, keyName, keysFor, noteRefusal, retryAfterSeconds } from "./groqKeys.ts";
 
 export const SYSTEM_PROMPT = systemPrompt(process.env.CANDY_RULE || DEFAULT_CANDY_RULE);
 
@@ -11,6 +11,7 @@ export type LlmTarget = {
   provider: "groq" | "ollama";
   model: string;
   label: string; // "groq:model" (with "key 2" when there are several keys)
+  keyIndex?: number;
   client: OpenAI;
   // Provider-specific body fields that the openai types do not declare.
   extra: Record<string, unknown>;
@@ -57,7 +58,7 @@ const groqLabel = (model: string, keyIndex: number) => `groq:${model}${groqKeyCo
 
 export function groqTarget(model: string, apiKey = firstGroqKey(), keyIndex = 0): LlmTarget | undefined {
   if (!apiKey) return undefined;
-  return { provider: "groq", model, label: groqLabel(model, keyIndex), client: groqClient(apiKey), extra: groqExtra(model) };
+  return { provider: "groq", model, label: groqLabel(model, keyIndex), keyIndex, client: groqClient(apiKey), extra: groqExtra(model) };
 }
 
 export function ollamaTarget(model: string): LlmTarget {
@@ -182,6 +183,7 @@ export async function chatWithFallback(
     } catch (e) {
       if (signal.aborted) throw e;
       h.lastError = (e as Error).message;
+      if (target.keyIndex !== undefined) noteRefusal(target.keyIndex, h.lastError);
       h.cooldownUntil = Date.now() + cooldownMs(e);
       console.warn(`[llm] ${label(target)} failed: ${h.lastError}`);
       if (started) throw e;
