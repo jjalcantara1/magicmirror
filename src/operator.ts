@@ -1,5 +1,6 @@
 type Handlers = { wake(): void; reset(): void; newVisitor(): void; nextVoice(): void; candy(): void; halloween(): void };
 type Status = {
+  keys: string[];
   llm: { target: string; requests: number; tokens: number; remainingRequests?: number; coolingDownSec: number; lastError?: string }[];
   stt: { target: string; requestsToday: number };
   tts: { target: string; requestsToday: number; coolingDownSec: number; lastError?: string };
@@ -30,6 +31,7 @@ export function createOperator(handlers: Handlers) {
     try {
       const s = (await (await fetch("/api/status")).json()) as Status;
       status = [
+        `groq keys: ${s.keys.length ? s.keys.join("  ") : "none"}`,
         "free tier today:",
         ...s.llm.map(
           (p) =>

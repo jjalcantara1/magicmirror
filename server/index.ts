@@ -1,3 +1,4 @@
+import "./env.ts"; // first: loads .env before any other module reads a setting
 import express from "express";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -5,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribe } from "./providers/stt.ts";
-import { groqKeyCount } from "./providers/groqKeys.ts";
+import { groqKeyCount, keyHints } from "./providers/groqKeys.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -108,7 +109,7 @@ app.get("/api/config", async (_req, res) => {
 });
 
 app.get("/api/status", (_req, res) => {
-  res.json({ llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
+  res.json({ keys: keyHints(), llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
 });
 
 // The browser's voice worker asks for each piece of speech here, so the Groq key stays on the laptop.
@@ -196,6 +197,8 @@ app.listen(PORT, "127.0.0.1", (error?: Error) => {
     process.exit(1);
   }
   console.log(`Magic Mirror ${prod ? "(prod)" : "(dev)"} at http://127.0.0.1:${PORT}`);
+  // Only the last 4 characters, so the right key can be checked without showing it.
+  console.log(groqKeyCount() ? `[groq] using ${groqKeyCount()} key${groqKeyCount() > 1 ? "s" : ""}: ${keyHints().join(", ")}` : "[groq] no GROQ_API_KEY: the local voice only, and no AI");
 });
 
 // Keep the offline fallback model loaded. Re-warm in case a request reset Ollama's keep-alive.

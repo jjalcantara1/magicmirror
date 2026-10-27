@@ -20,6 +20,8 @@ const restUntil = new Map<string, number>(); // `${use}|${key index}` -> time it
 const turn = new Map<string, number>(); // `${use}` -> where the next round starts
 
 export const groqKeyCount = () => keys.length;
+/** The last 4 characters of each key, to check which keys are loaded without showing them. */
+export const keyHints = () => keys.map((k) => `…${k.slice(-4)}`);
 export const firstGroqKey = (): string | undefined => keys[0];
 
 /** "key 2 of 3" for logs and the operator panel; never the key itself. */
