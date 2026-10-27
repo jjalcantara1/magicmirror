@@ -1,9 +1,11 @@
 import express from "express";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers/llm.ts";
 import { sttStatus, transcribe } from "./providers/stt.ts";
+import { groqKeyCount } from "./providers/groqKeys.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakGroq, ttsStatus } from "./providers/tts.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -12,21 +14,42 @@ const PORT = Number(process.env.PORT ?? 5173);
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // Full large-v3 first: turbo loses more accuracy on less common languages like Tagalog.
 const STT_MODELS = (process.env.STT_MODEL || "whisper-large-v3,whisper-large-v3-turbo").split(",").map((m) => m.trim()).filter(Boolean);
-// The Groq voice needs the Groq key; without it, or with TTS_ENGINE=piper, the local Piper voice speaks.
-const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !process.env.GROQ_API_KEY ? "piper" : "groq";
+// The Groq voice needs a Groq key; without one, or with TTS_ENGINE=piper, the local Piper voice speaks.
+const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !groqKeyCount() ? "piper" : "groq";
+// Things worth remembering across restarts (not secrets): which Groq voice is deepest.
+const MEMORY_FILE = join(ROOT, ".mirror-memory.json");
+const remembered = (): { deepestVoice?: { model: string; voices: string[]; voice: string; pitches: Record<string, number> } } => {
+  try {
+    return JSON.parse(readFileSync(MEMORY_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+};
 const TTS_MODEL = process.env.TTS_MODEL || "canopylabs/orpheus-v1-english";
 const PIPER_VOICE = process.env.TTS_VOICE || "en_GB-alan-medium";
 const GROQ_VOICE_SETTING = process.env.GROQ_TTS_VOICE || "deepest";
 let groqVoice = GROQ_VOICE_SETTING === "deepest" ? "troy" : GROQ_VOICE_SETTING;
-// "deepest": ask Groq for one line in each male voice (3 requests) and use the lowest. If Groq
+// "deepest": ask Groq for one line in each male voice (3 requests) and use the lowest. The answer is
+// remembered in .mirror-memory.json, so restarts spend none of Groq's voice requests on it. If Groq
 // refuses (before its terms are accepted, say), the next page load tries again.
 let voiceChosen: Promise<void> | undefined;
 function chooseVoice(): Promise<void> {
   if (TTS_ENGINE !== "groq" || GROQ_VOICE_SETTING !== "deepest") return Promise.resolve();
+  const known = remembered().deepestVoice;
+  if (known?.model === TTS_MODEL && known.voices.join() === GROQ_MALE_VOICES.join()) {
+    groqVoice = known.voice;
+    return Promise.resolve();
+  }
   voiceChosen ??= findDeepestVoice(GROQ_MALE_VOICES, TTS_MODEL).then(
     ({ voice, pitches }) => {
       groqVoice = voice;
       console.log(`[tts] deepest Groq voice: ${voice} (median pitch: ${Object.entries(pitches).map(([v, hz]) => `${v} ${hz} Hz`).join(", ")})`);
+      try {
+        const memory = { ...remembered(), deepestVoice: { model: TTS_MODEL, voices: GROQ_MALE_VOICES, voice, pitches } };
+        writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+      } catch (e) {
+        console.warn(`[tts] could not remember the voice: ${(e as Error).message}`);
+      }
     },
     (e: Error) => {
       console.warn(`[tts] could not compare the Groq voices (${e.message}); using ${groqVoice} until the next page load`);

@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from "openai";
+import { firstGroqKey, keyName, keysFor, rest, restingFor, retryAfterSeconds } from "./groqKeys.ts";
 
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Whisper reads this as the talk so far. It biases it toward party words, and toward writing English,
@@ -15,10 +16,9 @@ export const echoesPrompt = (text: string) => runs(words(text)).some((run) => LI
 // Blank: Whisper hears which language it is, which suits Taglish. "tl" or "en" forces one.
 const LANGUAGE = process.env.STT_LANGUAGE || undefined;
 
-const usage = { day: "", requests: 0 };
+const usage = { day: "", requests: 0, lastError: "" };
 
-export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortSignal): Promise<string> {
-  const apiKey = process.env.GROQ_API_KEY;
+export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortSignal, apiKey = firstGroqKey()): Promise<string> {
   if (!apiKey) throw new Error("GROQ_API_KEY is not set");
   const client = new OpenAI({ apiKey, baseURL: GROQ_BASE_URL, maxRetries: 0 });
   const result = await client.audio.transcriptions.create(
@@ -44,15 +44,29 @@ export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortS
   return echoesPrompt(text) ? "" : text;
 }
 
-// Tries each model in order, so a model that fails (rate limit, retired) falls back to the next.
+// Tries each model in order, and for each model the keys in turn. "Too many requests" rests that
+// key for that model and tries the next key; a refused key rests 10 minutes; any other failure
+// (a retired model, say) moves on to the next model.
 export async function transcribe(wav: Buffer, models: readonly string[]): Promise<{ text: string; model: string }> {
   let lastError: unknown = new Error("No speech-to-text model is set");
   for (const model of models) {
-    try {
-      return { text: await transcribeGroq(wav, model), model };
-    } catch (e) {
-      lastError = e;
-      console.warn(`[stt] ${model} failed: ${(e as Error).message}`);
+    const use = `stt:${model}`;
+    const keys = keysFor(use);
+    if (!keys.length && restingFor(use)) lastError = new Error(`${model}: every key is resting (${restingFor(use)} s)`);
+    for (const { key, index } of keys) {
+      try {
+        const text = await transcribeGroq(wav, model, undefined, key);
+        usage.lastError = "";
+        return { text, model };
+      } catch (e) {
+        lastError = e;
+        usage.lastError = `${model} ${keyName(index)}: ${(e as Error).message}`;
+        console.warn(`[stt] ${usage.lastError}`);
+        const status = e instanceof OpenAI.APIError ? e.status : undefined;
+        if (status === 429) rest(use, index, retryAfterSeconds(e instanceof OpenAI.APIError ? e.headers : undefined));
+        else if (status === 401 || status === 403) rest(use, index, 600);
+        else break;
+      }
     }
   }
   throw lastError;
@@ -60,5 +74,5 @@ export async function transcribe(wav: Buffer, models: readonly string[]): Promis
 
 export function sttStatus() {
   const today = new Date().toISOString().slice(0, 10);
-  return { target: "groq:whisper", requestsToday: usage.day === today ? usage.requests : 0 };
+  return { target: "groq:whisper", requestsToday: usage.day === today ? usage.requests : 0, lastError: usage.lastError || undefined };
 }
