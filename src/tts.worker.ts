@@ -12,14 +12,17 @@ export type TtsInit = { type: "init"; engine: "groq" | "piper"; voice: string; p
 // line: which line this piece belongs to (a reply, the opening, a key's line). The speaker sends
 // "end" with the line's number once all its pieces are sent.
 type SpeakRequest = { type: "speak"; generation: number; line: number; text: string; voice: string; tone: string };
-export type TtsRequest = TtsInit | SpeakRequest | { type: "end"; line: number } | { type: "cancel" };
+// prepare: record a short line now and hand it back (a reaction), to be played later at once.
+type PrepareRequest = { type: "prepare"; key: string; text: string; voice: string; tone: string };
+export type TtsRequest = TtsInit | SpeakRequest | PrepareRequest | { type: "end"; line: number } | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
   | { type: "failed"; error: string }
   // pieces: how many speak requests this audio covers (Groq pieces are joined into one take).
   // starts: where each piece's words begin, as a share of the audio's length, so the face can
   // change mood mid-take. bass: the same audio an octave lower (empty when the bass layer is off).
-  | { type: "audio"; generation: number; pieces: number; starts: number[]; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
+  | { type: "audio"; generation: number; pieces: number; starts: number[]; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string }
+  | { type: "prepared"; key: string; samples: Float32Array; bass: Float32Array; sampleRate: number };
 
 const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tts.ts)
 // The first sentence of a line goes to Groq alone and at once, so the voice starts soonest. The rest
@@ -178,11 +181,16 @@ async function init(msg: TtsInit) {
 // Long pauses cut, then made shorter here and played lower by the pitch factor: a deeper voice,
 // `speed` times as fast as the voice spoke it. Silence still counts its pieces, so the speaker's
 // count of pending pieces stays right.
-function send(take: SpeakRequest[], audio: Audio | undefined, start: number, by: string) {
+function mirrorAudio(audio: Audio | undefined): { samples: Float32Array; bass: Float32Array } {
   const cfg = config!;
   let samples = audio ? stretch(tightenPauses(audio.samples, audio.sampleRate), cfg.pitch / cfg.speed, audio.sampleRate) : new Float32Array(0);
   if (samples === audio?.samples) samples = samples.slice(); // sending it would empty the cached copy
   const bass = audio && cfg.bass ? octaveBelow(samples, audio.sampleRate) : new Float32Array(0);
+  return { samples, bass };
+}
+
+function send(take: SpeakRequest[], audio: Audio | undefined, start: number, by: string) {
+  const { samples, bass } = mirrorAudio(audio);
   reply(
     {
       type: "audio",
@@ -272,9 +280,23 @@ async function pump() {
   busy = false;
 }
 
+// Records a reaction with the main voice (Piper if Groq can't), ready to play the moment it is needed.
+// Groq's copy comes from the server's disk after the first time, so this costs nothing again.
+async function prepare(msg: PrepareRequest) {
+  if (!config) return;
+  const piece: SpeakRequest = { type: "speak", generation: -1, line: -1, text: msg.text, voice: msg.voice, tone: msg.tone };
+  let audio: Audio | undefined;
+  if (config.engine === "groq") audio = await groqTake([piece]).catch(() => undefined);
+  audio ??= await piperSpeech(msg.text, config.engine === "groq" ? config.piperVoice : msg.voice).catch(() => undefined);
+  if (!audio) return;
+  const { samples, bass } = mirrorAudio(audio);
+  reply({ type: "prepared", key: msg.key, samples, bass, sampleRate: audio.sampleRate }, [samples.buffer, bass.buffer]);
+}
+
 self.onmessage = (e: MessageEvent<TtsRequest>) => {
   const msg = e.data;
   if (msg.type === "init") void init(msg);
+  else if (msg.type === "prepare") void prepare(msg);
   else if (msg.type === "speak") {
     queue.push(msg);
     void pump();

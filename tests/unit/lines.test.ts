@@ -1,6 +1,6 @@
 // Everything the mirror says in its own words is in everyday words children use: its fixed lines
 // and the example replies in its instructions. Only the classic opening line is old-fashioned.
-const { CUES, FOGGY, GOODBYES, OPENING, SMUDGE } = await import("../../src/lines.ts");
+const { CUES, FOGGY, GOODBYES, OPENING, REACTIONS, SMUDGE } = await import("../../src/lines.ts");
 const { systemPrompt } = await import("../../src/prompt.ts");
 const { OLD_WORDS } = await import("../../scripts/topicCases.ts");
 let bad = 0;
@@ -9,7 +9,8 @@ const ok = (c: boolean, w: string) => {
   bad += c ? 0 : 1;
 };
 const words = (s: string) => s.match(/\S+/g)?.length ?? 0;
-const lines = [...Object.values(CUES).flatMap((c) => c.lines), ...GOODBYES, FOGGY, SMUDGE];
+const lines = [...Object.values(CUES).flatMap((c) => c.lines), ...GOODBYES, FOGGY, SMUDGE, ...REACTIONS];
+ok(REACTIONS.length >= 3 && REACTIONS.every((r) => words(r) <= 3 && !/^ooh/i.test(r)), `the reactions are tiny and never "Ooh" (replies often start with it): ${REACTIONS.join(" ")}`);
 const old = lines.filter((l) => OLD_WORDS.test(l));
 ok(old.length === 0, `no old-fashioned words in the fixed lines${old.length ? `: ${old.join(" | ")}` : ""}`);
 ok(lines.every((l) => words(l) <= 15), "every fixed line is short (15 words at most)");

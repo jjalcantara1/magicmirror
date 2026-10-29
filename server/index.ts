@@ -92,6 +92,7 @@ app.get("/api/config", async (_req, res) => {
       voice: TTS_ENGINE === "groq" ? groqVoice : PIPER_VOICE,
       piperVoice: PIPER_VOICE,
       acting: process.env.VOICE_ACTING !== "off",
+      reactions: process.env.REACTIONS !== "off",
     },
     voiceFx: {
       // Deep, unhurried and cheeky: the settings chosen by ear on 2026-10-29.
