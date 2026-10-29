@@ -114,6 +114,7 @@ app.get("/api/config", async (_req, res) => {
       // ("I'm a...") is still waited for (THINK_MS in main.ts).
       redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 600),
       nearDb: Number(process.env.MIC_NEAR_DB || 7),
+      listenAfterMs: Number(process.env.LISTEN_AFTER_MS || 600), // was 900 ms; children answer fast
     },
   });
 });

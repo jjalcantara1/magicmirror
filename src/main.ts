@@ -93,7 +93,6 @@ const PIPER_VOICES = [
   "en_GB-alba-medium",
   "en_US-lessac-medium",
 ];
-const ECHO_TAIL_MS = 900; // let the hall echo die away before the mic listens again, so the mirror never hears itself
 // Children stop to think mid-sentence ("I'm a... um..."). When the words so far sound unfinished, the
 // mirror listens on for THINK_MS more (longer while they are still talking) and answers both parts
 // together. A question mark or "!" counts as finished. Finished-sounding words are answered after
@@ -118,6 +117,9 @@ let hearingWake = false; // a sleeping mirror is checking whether it heard "hell
 let lastActivity = performance.now(); // the last time a child spoke near the mirror, or it spoke
 
 const config = (await (await fetch("/api/config")).json()) as Config;
+// After the mirror speaks, the mic opens once the hall echo has mostly died away, so the mirror does
+// not hear itself, but soon enough to catch a child who answers its question straight away.
+const ECHO_TAIL_MS = config.vad.listenAfterMs;
 const face = createMaskFace(document.querySelector("#mirror")!);
 const conversation = createConversation();
 const operator = createOperator({ wake: () => void wake(), reset, newVisitor, nextVoice, candy: () => void cue("candy"), halloween: () => void cue("halloween") });
