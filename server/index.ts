@@ -92,12 +92,12 @@ app.get("/api/config", async (_req, res) => {
       acting: process.env.VOICE_ACTING !== "off",
     },
     voiceFx: {
-      // Deep, but still a natural, cheeky human voice that small children follow: lower pitch, the
-      // octave rumble and more echo all made it sound robotic and blurred the words.
-      pitch: Number(process.env.VOICE_PITCH || 0.85),
-      speed: Number(process.env.VOICE_SPEED || 1),
+      // Deep, unhurried and cheeky: the settings chosen by ear on 2026-10-29.
+      // Lower pitch, a louder rumble or more echo made it sound robotic and blurred the words.
+      pitch: Number(process.env.VOICE_PITCH || 0.8),
+      speed: Number(process.env.VOICE_SPEED || 0.85),
       echo: Number(process.env.VOICE_ECHO || 0.3), // the echo is shaped to stay off the words (speak.ts)
-      bass: Number(process.env.VOICE_BASS || 0),
+      bass: Number(process.env.VOICE_BASS || 0.2),
     },
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
