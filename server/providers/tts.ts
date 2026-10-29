@@ -7,8 +7,8 @@ import { tightenPauses } from "../../src/stretch.ts";
 import { parseWav, type Audio } from "../../src/wav.ts";
 import { describeKey, keysFor, noteRefusal, rest, restingFor, retryAfterSeconds } from "./groqKeys.ts";
 
-// Groq's Orpheus voice: much more human than the local Piper voice. The browser asks for each piece
-// of a reply through /api/tts, so the API key stays on the laptop.
+// Groq's Orpheus voice: much more human than the local Piper voice. The browser asks for each line
+// (a whole reply where it fits) through /api/tts, so the API key stays on the laptop.
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 export const GROQ_TTS_MAX_CHARS = 200; // Groq refuses longer input (checked 2026-10)
 export const GROQ_MALE_VOICES = ["troy", "daniel", "austin"]; // Orpheus English male voices (checked 2026-10)
@@ -42,7 +42,7 @@ export async function speakCached(text: string, voice: string, model: string): P
     // A looping take (see runaway.ts) is not kept; the browser asks for it again.
     const audio = parseWav(new Uint8Array(wav).buffer);
     const seconds = tightenPauses(audio.samples, audio.sampleRate).length / audio.sampleRate;
-    if (!tooLong(text.replace(/^\[[^\]]*\]\s*/, ""), seconds)) {
+    if (!tooLong(text.replace(/\[[^\]]*\]\s*/g, ""), seconds)) {
       mkdirSync(CACHE_DIR, { recursive: true });
       writeFileSync(file, wav);
       const files = readdirSync(CACHE_DIR).filter((f) => f.endsWith(".wav"));

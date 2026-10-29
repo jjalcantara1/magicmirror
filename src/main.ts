@@ -46,7 +46,8 @@ const CUES = {
 } satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
-// "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]").
+// "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]"; each direction
+// makes it more acted, so a reply gets one only where its tone changes, see tts.worker.ts).
 // Fun, cheeky and calm, so small children can follow: playful for anything teasing or funny,
 // cheerful for warm moments. Dramatic and whisper sounded odd, and excited rushes the words.
 const MOOD_VOICE: Record<Mood, string> = {
