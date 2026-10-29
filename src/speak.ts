@@ -57,7 +57,12 @@ export function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
   return trim;
 }
 
-// Speaks reply pieces in order with no gaps, and reports the mouth level and shape from the audio that is playing.
+// A breath between sentences that were made separately (Piper's, or a Groq line too long for one
+// take): played back to back they ran together, which children found hard to follow. Seconds.
+const SENTENCE_GAP = 0.3;
+const COMMA_GAP = 0.12;
+
+// Speaks reply pieces in order, and reports the mouth level and shape from the audio that is playing.
 export function createSpeaker(
   tts: TtsConfig,
   fx: VoiceFx,
@@ -85,6 +90,8 @@ export function createSpeaker(
   let voice = tts.voice;
   let engine: "worker" | "browser" = "worker";
   let generation = 0; // stop() bumps this, so audio from an old reply is dropped
+  let line = 0; // each reply or scripted line; the worker joins a line's pieces into one Groq take
+  let lastText = ""; // the words that play last, to choose the pause before the next piece
   type Piece = { text: string; onStart?: () => void };
   let pending: Piece[] = []; // sent to the worker, audio not back yet
   let outstanding = 0; // pieces not finished playing
@@ -110,7 +117,7 @@ export function createSpeaker(
     hooks.onAudioStart();
   }
 
-  function play(samples: Float32Array, sampleRate: number, pieces: Piece[], bass: Float32Array) {
+  function play(samples: Float32Array, sampleRate: number, pieces: Piece[], bass: Float32Array, starts: number[]) {
     if (!samples.length) {
       pieces.forEach((p) => p.onStart?.());
       return pieceDone(pieces.length);
@@ -121,11 +128,17 @@ export function createSpeaker(
     source.buffer = buffer;
     source.playbackRate.value = fx.pitch;
     source.connect(analyser);
-    const at = Math.max(audioContext.currentTime + 0.03, nextStart);
+    const gap = nextStart ? (/[,;:]$/.test(lastText) ? COMMA_GAP : SENTENCE_GAP) : 0;
+    const at = Math.max(audioContext.currentTime + 0.03, nextStart + gap);
+    const length = buffer.duration / fx.pitch;
     source.start(at);
-    nextStart = at + buffer.duration / fx.pitch;
+    nextStart = at + length;
+    lastText = pieces[pieces.length - 1]?.text ?? "";
     const gen = generation;
-    setTimeout(() => gen === generation && pieces.forEach((p) => p.onStart?.()), (at - audioContext.currentTime) * 1000);
+    // Each piece's face change comes as its words start, also inside a take of several pieces.
+    pieces.forEach((p, i) => {
+      setTimeout(() => gen === generation && p.onStart?.(), (at - audioContext.currentTime + (starts[i] ?? 0) * length) * 1000);
+    });
     if (bass.length) {
       const low = audioContext.createBuffer(1, bass.length, sampleRate);
       low.copyToChannel(new Float32Array(bass), 0);
@@ -179,7 +192,7 @@ export function createSpeaker(
       } else if (msg.generation === generation) {
         const pieces = pending.splice(0, msg.pieces);
         hooks.onPiece(msg.genMs, msg.samples.length / msg.sampleRate / fx.pitch, msg.by);
-        play(msg.samples, msg.sampleRate, pieces, msg.bass);
+        play(msg.samples, msg.sampleRate, pieces, msg.bass, msg.starts);
       }
     };
   });
@@ -243,18 +256,22 @@ export function createSpeaker(
      */
     say(said: string, tone = "", onStart?: () => void) {
       const text = sayable(said);
-      if (finished) waitingForFirst = true;
+      if (finished) {
+        waitingForFirst = true;
+        line++;
+      }
       finished = false;
       outstanding++;
       if (engine === "browser") speakBrowser({ text, onStart });
       else {
         pending.push({ text, onStart });
-        send({ type: "speak", generation, text, voice, tone: tts.acting ? tone : "" });
+        send({ type: "speak", generation, line, text, voice, tone: tts.acting ? tone : "" });
       }
     },
     /** Resolves when everything said so far has finished playing. */
     finish(): Promise<void> {
       finished = true;
+      send({ type: "end", line }); // the worker need not wait for more of this line
       if (outstanding === 0) return Promise.resolve();
       return new Promise((resolve) => idle.push(resolve));
     },
@@ -273,6 +290,7 @@ export function createSpeaker(
       finished = true;
       waitingForFirst = false;
       nextStart = 0;
+      lastText = "";
       const resolvers = idle;
       idle = [];
       resolvers.forEach((resolve) => resolve());

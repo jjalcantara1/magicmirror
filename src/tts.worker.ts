@@ -21,17 +21,25 @@ export type TtsInit = {
   bass: boolean;
 };
 // tone: how Groq should say it, as an Orpheus direction like "cheerful" ("" = natural). Piper ignores it.
-type SpeakRequest = { type: "speak"; generation: number; text: string; voice: string; tone: string };
-export type TtsRequest = TtsInit | SpeakRequest | { type: "cancel" };
+// line: which line this piece belongs to (a reply, the opening, a key's line). The speaker sends
+// "end" with the line's number once all its pieces are sent.
+type SpeakRequest = { type: "speak"; generation: number; line: number; text: string; voice: string; tone: string };
+export type TtsRequest = TtsInit | SpeakRequest | { type: "end"; line: number } | { type: "cancel" };
 export type TtsReply =
   | { type: "ready"; engine: string }
   | { type: "failed"; error: string }
   | { type: "status"; text: string } // e.g. the first download's progress
-  // pieces: how many speak requests this audio covers (Groq pieces are joined into one request).
-  // bass: the same audio an octave lower (empty when the bass layer is off).
-  | { type: "audio"; generation: number; pieces: number; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
+  // pieces: how many speak requests this audio covers (Groq pieces are joined into one take).
+  // starts: where each piece's words begin, as a share of the audio's length, so the face can
+  // change mood mid-take. bass: the same audio an octave lower (empty when the bass layer is off).
+  | { type: "audio"; generation: number; pieces: number; starts: number[]; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
 
 const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tts.ts)
+// Groq says a whole line in one take where it fits: one recording flows from sentence to sentence
+// like speech, with natural pauses and one voice, where separate recordings each start afresh and
+// the tone jumped between them. Groq's AI writes a reply in a fraction of a second, so waiting for
+// its end costs little; a slower AI is waited for no longer than this.
+const HOLD_MS = 1000;
 // Groq audio for lines said before, like the opening every visit starts with: those then start at
 // once and use none of Groq's daily requests.
 const said = new Map<string, Audio>();
@@ -49,6 +57,9 @@ let config: TtsInit | undefined;
 let ready = false;
 let busy = false;
 const queue: SpeakRequest[] = [];
+let endedLine = -1; // the latest line whose pieces have all arrived
+let cancels = 0;
+let wake: (() => void) | undefined; // ends a wait for the next message
 let piper: { voice: string; session: Promise<TtsSession> } | undefined;
 const reply = (msg: TtsReply, transfer: Transferable[] = []) => postMessage(msg, { transfer });
 
@@ -68,13 +79,15 @@ function loadPiper(voice: string): Promise<TtsSession> {
   return piper.session;
 }
 
-// Splits text into parts of at most `max` characters, at spaces.
+// Splits text into parts of at most `max` characters: after the last sentence that fits, else at a
+// comma, else at a space, so each part still sounds like a whole phrase.
 function split(text: string, max: number): string[] {
   const parts: string[] = [];
   let rest = text.trim();
   while (rest.length > max) {
-    const cut = rest.lastIndexOf(" ", max);
-    const at = cut > 0 ? cut : max;
+    const head = rest.slice(0, max + 1);
+    const lastEnd = (marks: RegExp) => Math.max(-1, ...[...head.matchAll(marks)].map((m) => m.index + 1));
+    const at = [lastEnd(/[.!?…](?=\s)/g), lastEnd(/[,;:](?=\s)/g), head.lastIndexOf(" ")].find((n) => n > 0) ?? max;
     parts.push(rest.slice(0, at));
     rest = rest.slice(at).trim();
   }
@@ -82,13 +95,59 @@ function split(text: string, max: number): string[] {
   return parts;
 }
 
-// The direction goes in front of the text, like "[cheerful] Hello!", and counts toward Groq's limit.
-const direction = (tone: string) => (tone ? `[${tone}] ` : "");
+// A take as Groq gets it: a direction at the start and wherever the tone changes, like
+// "[cheerful] You're the fairest of them all! [playful] The Queen's so jealous." Each direction makes
+// the voice more acted, so there are no more than the tone changes need.
+const takeText = (take: SpeakRequest[]) =>
+  take.map((p, i) => (p.tone && p.tone !== take[i - 1]?.tone ? `[${p.tone}] ` : "") + p.text).join(" ");
+const withoutDirections = (text: string) => text.replace(/\[[^\]]*\]\s*/g, "");
 
-async function groqSpeech(text: string, voice: string, tone: string): Promise<Audio> {
+// Where each piece starts in the take, as a share of its length (speech takes about as long as its letters).
+function starts(take: SpeakRequest[]): number[] {
+  const total = take.reduce((n, p) => n + p.text.length + 1, 0);
+  let at = 0;
+  return take.map((p) => {
+    const share = at / total;
+    at += p.text.length + 1;
+    return share;
+  });
+}
+
+function nextMessage(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      wake = undefined;
+      resolve();
+    }, Math.max(0, ms));
+    wake = () => {
+      clearTimeout(timer);
+      wake = undefined;
+      resolve();
+    };
+  });
+}
+
+// Adds the rest of the line to a Groq take, waiting up to HOLD_MS for it to arrive. False when the
+// speaker stopped meanwhile: then nothing is said, and no Groq request is spent.
+async function gather(take: SpeakRequest[]): Promise<boolean> {
+  const first = take[0];
+  const deadline = performance.now() + HOLD_MS;
+  const cancelled = cancels;
+  for (;;) {
+    if (cancels !== cancelled) return false;
+    const next = queue[0];
+    if (next?.generation === first.generation && next.line === first.line) {
+      if (takeText([...take, next]).length > GROQ_MAX_CHARS) return true;
+      take.push(queue.shift()!);
+    } else if (next || endedLine >= first.line || performance.now() >= deadline) return true;
+    else await nextMessage(deadline - performance.now());
+  }
+}
+
+async function groqSpeech(text: string, voice: string): Promise<Audio> {
   const audio: Audio[] = [];
-  for (const part of split(text, GROQ_MAX_CHARS - direction(tone).length)) {
-    const body = JSON.stringify({ text: direction(tone) + part, voice });
+  for (const part of split(text, GROQ_MAX_CHARS)) {
+    const body = JSON.stringify({ text: part, voice });
     const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body });
     if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${res.status}`);
     audio.push(parseWav(await res.arrayBuffer()));
@@ -164,75 +223,95 @@ async function init(msg: TtsInit) {
   }
 }
 
+// Long pauses cut, then made shorter here and played lower by the pitch factor: a deeper voice,
+// `speed` times as fast as the voice spoke it. Silence still counts its pieces, so the speaker's
+// count of pending pieces stays right.
+function send(take: SpeakRequest[], audio: Audio | undefined, start: number, by: string) {
+  const cfg = config!;
+  let samples = audio ? stretch(tightenPauses(audio.samples, audio.sampleRate), cfg.pitch / cfg.speed, audio.sampleRate) : new Float32Array(0);
+  if (samples === audio?.samples) samples = samples.slice(); // sending it would empty the cached copy
+  const bass = audio && cfg.bass ? octaveBelow(samples, audio.sampleRate) : new Float32Array(0);
+  reply(
+    {
+      type: "audio",
+      generation: take[0].generation,
+      pieces: take.length,
+      starts: starts(take),
+      samples,
+      bass,
+      sampleRate: audio?.sampleRate ?? 22050,
+      genMs: performance.now() - start,
+      by,
+    },
+    [samples.buffer, bass.buffer],
+  );
+}
+
+async function groqTake(take: SpeakRequest[]): Promise<Audio> {
+  const text = takeText(take);
+  const words = take.map((p) => p.text).join(" ");
+  const voice = take[0].voice;
+  const key = `${voice}|${text}`;
+  const seconds = (a: Audio) => tightenPauses(a.samples, a.sampleRate).length / a.sampleRate;
+  let audio = said.get(key);
+  if (!audio) {
+    audio = await groqSpeech(text, voice);
+    // A looping take is asked for again without the directions; it is never played or kept.
+    if (tooLong(words, seconds(audio))) {
+      console.warn(`[tts] Groq looped (${seconds(audio).toFixed(1)} s for "${words}"); asking again`);
+      audio = await groqSpeech(words, voice);
+      if (tooLong(words, seconds(audio))) throw new Error("Groq looped twice");
+    }
+  }
+  said.delete(key);
+  said.set(key, audio); // newest last, so the oldest goes first
+  if (said.size > SAID_MAX) said.delete(said.keys().next().value!);
+  return audio;
+}
+
 async function pump() {
   if (busy || !ready || !config) return;
   busy = true;
   while (queue.length) {
-    const job = queue.shift()!;
-    let text = job.text;
-    let pieces = 1;
+    const take = [queue.shift()!];
     const groq = config.engine === "groq";
-    // Pieces that queued up while the last request ran go to Groq as one request: fewer requests
-    // (Groq limits them), and the first piece of a reply still goes alone, so speech starts soon.
-    // Only pieces in the same tone join, as one request has one direction.
-    const room = GROQ_MAX_CHARS - direction(job.tone).length;
-    while (groq && queue[0]?.generation === job.generation && queue[0].tone === job.tone && text.length + 1 + queue[0].text.length <= room) {
-      text += ` ${queue.shift()!.text}`;
-      pieces++;
-    }
-    const start = performance.now();
-    let audio: Audio | undefined;
-    const local = config.engine === "kokoro";
-    let by = `${config.engine} ${job.voice}`;
-    if (local) {
-      try {
-        audio = await kokoroSpeech(text, job.voice);
-        by = `kokoro ${job.voice} (${kokoroDevice})`;
-      } catch (e) {
-        by = `piper backup (Kokoro: ${(e as Error).message.slice(0, 80)})`;
-      }
-    }
+    if (groq && !(await gather(take))) continue; // stopped while waiting
+    const cancelled = cancels;
+    let start = performance.now();
+    let groqNote = "";
     if (groq) {
-      const key = `${job.voice}|${direction(job.tone)}${text}`;
-      const seconds = (a: Audio) => tightenPauses(a.samples, a.sampleRate).length / a.sampleRate;
       try {
-        let take = said.get(key);
-        if (!take) {
-          take = await groqSpeech(text, job.voice, job.tone);
-          // A looping take is asked for again without the tone; it is never played or kept.
-          if (tooLong(text, seconds(take))) {
-            console.warn(`[tts] Groq looped (${seconds(take).toFixed(1)} s for "${text}"); asking again`);
-            take = await groqSpeech(text, job.voice, "");
-            if (tooLong(text, seconds(take))) throw new Error("Groq looped twice");
-          }
+        send(take, await groqTake(take), start, `groq ${take[0].voice}`);
+        continue;
+      } catch (e) {
+        groqNote = `piper backup (Groq: ${(e as Error).message.slice(0, 80)})`;
+      }
+    }
+    // The local voices say the pieces one by one, so the first words start soonest.
+    for (const piece of take) {
+      if (cancels !== cancelled) break;
+      let audio: Audio | undefined;
+      let by = groqNote || `piper ${piece.voice}`;
+      if (config.engine === "kokoro") {
+        try {
+          audio = await kokoroSpeech(piece.text, piece.voice);
+          by = `kokoro ${piece.voice} (${kokoroDevice})`;
+        } catch (e) {
+          by = `piper backup (Kokoro: ${(e as Error).message.slice(0, 80)})`;
         }
-        audio = take;
-        said.delete(key);
-        said.set(key, audio); // newest last, so the oldest goes first
-        if (said.size > SAID_MAX) said.delete(said.keys().next().value!);
-      } catch (e) {
-        by = `piper backup (Groq: ${(e as Error).message.slice(0, 80)})`;
       }
-    }
-    if (!audio) {
-      try {
-        // Piper's own voice, unless Piper is the chosen engine (then the voice V picked).
-        audio = await piperSpeech(text, config.engine === "piper" && !kokoroFailed ? job.voice : config.piperVoice);
-      } catch (e) {
-        console.warn("[tts] generate failed", e);
-        by = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
+      if (!audio) {
+        try {
+          // Piper's own voice, unless Piper is the chosen engine (then the voice V picked).
+          audio = await piperSpeech(piece.text, config.engine === "piper" && !kokoroFailed ? piece.voice : config.piperVoice);
+        } catch (e) {
+          console.warn("[tts] generate failed", e);
+          by = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
+        }
       }
+      send([piece], audio, start, by);
+      start = performance.now();
     }
-    // Long pauses cut, then made shorter here and played lower by the pitch factor: a deeper voice,
-    // `speed` times as fast as the voice spoke it.
-    let samples = audio ? stretch(tightenPauses(audio.samples, audio.sampleRate), config.pitch / config.speed, audio.sampleRate) : new Float32Array(0);
-    if (samples === audio?.samples) samples = samples.slice(); // sending it would empty the cached copy
-    const bass = audio && config.bass ? octaveBelow(samples, audio.sampleRate) : new Float32Array(0);
-    // Silence still counts its pieces, so the speaker's count of pending pieces stays right.
-    reply(
-      { type: "audio", generation: job.generation, pieces, samples, bass, sampleRate: audio?.sampleRate ?? 22050, genMs: performance.now() - start, by },
-      [samples.buffer, bass.buffer],
-    );
   }
   busy = false;
 }
@@ -243,5 +322,10 @@ self.onmessage = (e: MessageEvent<TtsRequest>) => {
   else if (msg.type === "speak") {
     queue.push(msg);
     void pump();
-  } else queue.length = 0;
+  } else if (msg.type === "end") endedLine = Math.max(endedLine, msg.line);
+  else {
+    queue.length = 0;
+    cancels++;
+  }
+  wake?.();
 };
