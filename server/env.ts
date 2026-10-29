@@ -6,7 +6,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
-export const ENV_FILE = fileURLToPath(new URL("../.env", import.meta.url));
+// MIRROR_ENV_FILE: another settings file; the tests use one that does not exist, so they never read
+// your .env (or its Groq key).
+export const ENV_FILE = process.env.MIRROR_ENV_FILE || fileURLToPath(new URL("../.env", import.meta.url));
 const hint = (value: string) => (value.length > 8 ? `…${value.slice(-4)}` : "…");
 
 export function loadEnvFile(file = ENV_FILE): string[] {

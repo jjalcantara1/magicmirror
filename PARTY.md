@@ -79,3 +79,9 @@ Change them in `.env`, then close both windows and double-click `start-mirror.ba
 | A `[check]` line says FAILED | The line says what failed: usually the Groq key, the internet, or the Groq spend limit. |
 | Stuck, or the face froze | Press X. If that doesn't help, close both windows and start again. |
 | Chrome was not found | Open http://127.0.0.1:5173 in any browser and press F11. |
+
+## Checking a change (for whoever edits the code)
+
+`npm test` runs every test with Groq, hearing and the AI faked. It needs no key and no internet, and it never touches your `.env` or the recorded lines. `npm test -- wake` runs only the tests named "wake".
+
+The browser tests need Playwright once: `npm i -D playwright`, then `npx playwright install chromium`. Without it they are skipped.

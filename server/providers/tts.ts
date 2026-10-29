@@ -19,7 +19,10 @@ const USE = "tts";
 // Lines said before (the opening of every visit, the C and H lines, the "Oops" line) come from disk,
 // across page reloads and restarts, so the voice's small daily limit (3,600 tokens a day per Groq
 // organization on the free tier, checked 2026-10) is spent on new words only. Most recent 300 kept.
-const CACHE_DIR = fileURLToPath(new URL("../../.mirror-cache/voice/", import.meta.url));
+// MIRROR_CACHE_DIR: another folder for it; the tests use a temporary one, so they never touch yours.
+const CACHE_DIR = process.env.MIRROR_CACHE_DIR
+  ? join(process.env.MIRROR_CACHE_DIR, "voice")
+  : fileURLToPath(new URL("../../.mirror-cache/voice/", import.meta.url));
 const CACHE_MAX = 300;
 
 function countToday(field: "requests" | "fromDisk") {
