@@ -104,7 +104,7 @@ app.get("/api/config", async (_req, res) => {
       negative: Number(process.env.VAD_NEGATIVE_THRESHOLD || 0.35),
       // Silence that ends a sentence. Short, so the mirror answers quickly; a child who stops mid-thought
       // ("I'm a...") is still waited for (THINK_MS in main.ts).
-      redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 800),
+      redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 600),
       nearDb: Number(process.env.MIC_NEAR_DB || 7),
     },
   });
