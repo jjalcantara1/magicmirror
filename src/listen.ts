@@ -1,8 +1,11 @@
 import { MicVAD } from "@ricky0123/vad-web";
 import { createNearGate, rms } from "./nearGate.ts";
 
-/** nearDb: how far above the room a voice must be to be answered (see nearGate.ts); 0 = everyone. */
-export type VadConfig = { positive: number; negative: number; redemptionMs: number; nearDb: number };
+/**
+ * nearDb: how far above the room a voice must be to be answered (see nearGate.ts); 0 = everyone.
+ * listenAfterMs: how long after the mirror stops speaking the mic opens again.
+ */
+export type VadConfig = { positive: number; negative: number; redemptionMs: number; nearDb: number; listenAfterMs: number };
 
 // Silero VAD cuts the mic into utterances, in the browser. Audio goes only to the onUtterance
 // callback; nothing is recorded.
