@@ -1,5 +1,6 @@
 // The C and H keys: from sleep, and in the middle of an AI reply. Groq, speech-to-text and the AI faked.
 import { fixture, launch, MIRROR } from "./helper.mjs";
+const { CUES } = await import("../../src/lines.ts");
 const browser = await launch();
 const context = await browser.newContext({ viewport: { width: 700, height: 700 } });
 const errors = [], tts = [], chats = [];
@@ -41,7 +42,7 @@ async function watch(until, ms = 8000) {
   return { states, moods: [...moods].filter(Boolean) };
 }
 const ok = (c, what) => console.log(`${c ? "ok  " : "FAIL"} ${what}`);
-const CANDY = ["The glass has spoken: take your treat!", "Ka-BOOM! A treat for the bravest visitor of all!", "Abraca-PUMPKIN! Your treat is waiting. Go on, take it!", "Hee hee! You have earned a treat. Take it, quick!", "By my golden frame, a treat for you!"];
+const CANDY = CUES.candy.lines;
 
 // 1. C from sleep: wakes, says a treat line in an excited tone, shows the excited face, then listens.
 await page.keyboard.press("c");

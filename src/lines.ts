@@ -2,7 +2,8 @@
 // them, and the server, which records them with Groq's voice at start-up so they play at once.
 import type { Effect, Mood } from "./face/face.ts";
 
-// Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
+// Every visit opens with the classic line, word for word, so it needs no AI and starts at once. It is
+// the only old-fashioned line: everything else the mirror says is in everyday words children use.
 // No "..." in it: an ellipsis after repeated words can set the Groq voice looping.
 export const OPENING = "Mirror, mirror, on the wall, who is the fairest of them all? Step closer, and let the magic glass decide!";
 // A stage note before it, so the chat history still starts with the visitor.
@@ -16,10 +17,10 @@ export const CUES = {
     note: "(The mirror grants the visitor a treat.)",
     lines: [
       "The glass has spoken: take your treat!",
-      "Ka-BOOM! A treat for the bravest visitor of all!",
+      "Ka-BOOM! A treat for the bravest kid of all!",
       "Abraca-PUMPKIN! Your treat is waiting. Go on, take it!",
-      "Hee hee! You have earned a treat. Take it, quick!",
-      "By my golden frame, a treat for you!",
+      "Hee hee! You earned a treat. Take it, quick!",
+      "Sparkle, sparkle! A treat for you!",
     ],
   },
   halloween: {
@@ -27,11 +28,11 @@ export const CUES = {
     effect: "glow",
     note: "(The visitor is leaving.)",
     lines: [
-      "Happy Halloween! May your night be full of treats and giggles!",
-      "Happy Halloween, brave visitor! The glass will miss you!",
+      "Happy Halloween! Have a night full of treats and giggles!",
+      "Happy Halloween, my brave friend! I will miss you!",
       "Happy Halloween! Come back next year in your best costume!",
-      "Goodbye, and happy Halloween! Mind my shiny glass on your way out!",
-      "Happy Halloween! The Queen says hi... and she is a little jealous!",
+      "Bye-bye, and happy Halloween! Watch out for ghosts on your way out!",
+      "Happy Halloween! The Queen says hi, and she is a little jealous!",
     ],
   },
 } satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
@@ -41,7 +42,7 @@ export const SMUDGE = "Oops! A smudge on my glass! Can you ask me again?";
 // Said when the child has gone quiet for config.wake.idleSleepS: goodbye, and how to wake it again.
 // No "..." in them: an ellipsis can set the Groq voice looping.
 export const GOODBYES = [
-  "Farewell, brave visitor! Say hello mirror to wake me again!",
+  "Bye-bye, my brave friend! Say hello mirror to wake me up!",
   "Time for my beauty sleep! Say hello mirror to wake me!",
   "Happy Halloween! Say hello mirror, and I will wake up again!",
 ];

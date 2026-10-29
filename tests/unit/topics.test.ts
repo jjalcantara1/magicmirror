@@ -37,6 +37,8 @@ ok(judge(find("Do you like Minecraft?"), "Yes, I love building with blocks!") !=
 ok(judge(find("Who's the president?"), "Hmm, I don't know that one.") === "it did not turn back to Halloween", "a redirect that forgets Halloween is flagged");
 ok(judge(find("Ano ang pangalan mo?"), "Ako ang Magic Mirror!") !== undefined, "answering in Tagalog is flagged");
 ok(judge(find("I'm a vampire!"), "你好! Nice costume!") === "not all in English", "another script is flagged");
+ok(judge(find("I'm a vampire!"), "Ooh, a vampire! Your cape is so very swishy and dark and spooky tonight, my dear friend, and your fangs look sharp and shiny too!")?.startsWith("too long") === true, "a long reply is flagged");
+ok(judge(find("I'm a vampire!"), "Ooh, a vampire! Thou art most spooky!")?.startsWith("old-fashioned words") === true, "old-fashioned words are flagged");
 
 // The script itself, with the AI faked: one off-topic question gets answered.
 const asked: string[] = [];
