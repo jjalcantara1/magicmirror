@@ -22,10 +22,10 @@ export type TtsReply =
   | { type: "audio"; generation: number; pieces: number; starts: number[]; samples: Float32Array; bass: Float32Array; sampleRate: number; genMs: number; by: string };
 
 const GROQ_MAX_CHARS = 200; // Groq's limit per request (see server/providers/tts.ts)
-// Groq says a whole line in one take where it fits: one recording flows from sentence to sentence
-// like speech, with natural pauses and one voice, where separate recordings each start afresh and
-// the tone jumped between them. Groq's AI writes a reply in a fraction of a second, so waiting for
-// its end costs little; a slower AI is waited for no longer than this.
+// The first sentence of a line goes to Groq alone and at once, so the voice starts soonest. The rest
+// of the line follows as one take (one recording flows from sentence to sentence like speech, where
+// separate ones each start afresh), made while the first sentence is still on its way or playing.
+// The rest waits for the end of the line no longer than this.
 const HOLD_MS = 1000;
 // Groq audio for lines said before, like the opening every visit starts with: those then start at
 // once and use none of Groq's daily requests.
@@ -45,6 +45,8 @@ let ready = false;
 let busy = false;
 const queue: SpeakRequest[] = [];
 let endedLine = -1; // the latest line whose pieces have all arrived
+let startedLine = -1; // the latest line whose first sentence has gone to Groq
+let played = Promise.resolve(); // Groq takes are made side by side, and sent on in order
 let cancels = 0;
 let wake: (() => void) | undefined; // ends a wait for the next message
 let piper: { voice: string; session: Promise<TtsSession> } | undefined;
@@ -219,38 +221,53 @@ async function groqTake(take: SpeakRequest[]): Promise<Audio> {
   return audio;
 }
 
+// Asks Groq for a take now, and sends it on after the takes before it. If Groq cannot say it, Piper does.
+function speakGroq(take: SpeakRequest[]) {
+  const start = performance.now();
+  const cancelled = cancels;
+  const made = groqTake(take).then(
+    (audio) => ({ audio }),
+    (e: Error) => ({ error: e }),
+  );
+  played = played.then(async () => {
+    const result = await made;
+    if (cancels !== cancelled) return; // stopped meanwhile: the speaker no longer waits for it
+    if ("audio" in result) send(take, result.audio, start, `groq ${take[0].voice}`);
+    else await speakPiper(take, `piper backup (Groq: ${result.error.message.slice(0, 80)})`, cancelled);
+  });
+}
+
+// Piper says the pieces one by one, so the first words start soonest.
+async function speakPiper(take: SpeakRequest[], by: string, cancelled: number) {
+  let start = performance.now();
+  for (const piece of take) {
+    if (cancels !== cancelled) break;
+    let audio: Audio | undefined;
+    let note = by;
+    try {
+      audio = await piperSpeech(piece.text, config!.engine === "groq" ? config!.piperVoice : piece.voice);
+    } catch (e) {
+      console.warn("[tts] generate failed", e);
+      note = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
+    }
+    send([piece], audio, start, note);
+    start = performance.now();
+  }
+}
+
 async function pump() {
   if (busy || !ready || !config) return;
   busy = true;
   while (queue.length) {
     const take = [queue.shift()!];
-    const groq = config.engine === "groq";
-    if (groq && !(await gather(take))) continue; // stopped while waiting
-    const cancelled = cancels;
-    let start = performance.now();
-    let by = `piper ${take[0].voice}`;
-    if (groq) {
-      try {
-        send(take, await groqTake(take), start, `groq ${take[0].voice}`);
-        continue;
-      } catch (e) {
-        by = `piper backup (Groq: ${(e as Error).message.slice(0, 80)})`;
-      }
+    if (config.engine !== "groq") {
+      await speakPiper(take, `piper ${take[0].voice}`, cancels);
+      continue;
     }
-    // Piper says the pieces one by one, so the first words start soonest.
-    for (const piece of take) {
-      if (cancels !== cancelled) break;
-      let audio: Audio | undefined;
-      let note = by;
-      try {
-        audio = await piperSpeech(piece.text, groq ? config.piperVoice : piece.voice);
-      } catch (e) {
-        console.warn("[tts] generate failed", e);
-        note = `nothing: ${by}, and Piper failed too (${(e as Error).message.slice(0, 80)})`;
-      }
-      send([piece], audio, start, note);
-      start = performance.now();
-    }
+    const first = take[0].line !== startedLine;
+    startedLine = take[0].line;
+    if (!first && !(await gather(take))) continue; // stopped while waiting
+    speakGroq(take);
   }
   busy = false;
 }

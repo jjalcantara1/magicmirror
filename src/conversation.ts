@@ -25,6 +25,11 @@ const TAG = /\[\[\s*(?:effect\s*:\s*(\w+)|mood\s*:\s*(\w+)|(alert))\s*\]\]/gi;
 const ANY_BRACKET = /\[\[?[^\]]*\]?\]/g;
 const STAGE_DIRECTION = /\*[^*]*\*/g;
 const EMOJI = /\p{Extended_Pictographic}/gu;
+// The mirror talks in English. Some models slip into another script mid-reply (Qwen into Chinese),
+// which the English voice cannot say, so only Latin letters, digits and punctuation are kept.
+const OTHER_SCRIPT = /(?:[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]|[\u3000-\u303f\uff00-\uffef])+/gu;
+// Punctuation left standing alone once other words are gone, like the "!" of "Привет! Hi".
+const ORPHAN_MARKS = /(^|\s)[!?.,;:]+(?=\s|$)/g;
 
 export function parseTags(raw: string): Chunk {
   const effects: string[] = [];
@@ -35,7 +40,7 @@ export function parseTags(raw: string): Chunk {
     if (m[2]) moods.push(m[2].toLowerCase());
     if (m[3]) alert = true;
   }
-  const text = raw.replace(ANY_BRACKET, " ").replace(STAGE_DIRECTION, " ").replace(EMOJI, "").replace(/\s+/g, " ").trim();
+  const text = raw.replace(ANY_BRACKET, " ").replace(STAGE_DIRECTION, " ").replace(EMOJI, "").replace(OTHER_SCRIPT, " ").replace(ORPHAN_MARKS, "$1").replace(/\s+/g, " ").trim();
   return { text, effects, moods, alert };
 }
 

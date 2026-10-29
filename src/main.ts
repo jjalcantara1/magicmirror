@@ -83,10 +83,11 @@ const PIPER_VOICES = [
 const ECHO_TAIL_MS = 900; // let the hall echo die away before the mic listens again, so the mirror never hears itself
 // Children stop to think mid-sentence ("I'm a... um..."). When the words so far sound unfinished, the
 // mirror listens on for THINK_MS more (longer while they are still talking) and answers both parts
-// together. A question mark or "!" counts as finished.
+// together. A question mark or "!" counts as finished. Finished-sounding words are answered after
+// the speech detector's short silence (VAD_REDEMPTION_MS), so the mirror answers quickly.
 const UNFINISHED =
   /(?:\.\.\.|…|-|\b(?:um+|uh+|erm?|hmm+|and|or|but|so|because|the|a|an|my|your|is|are|was|i'm|im|i|to|of|with|like|ano|yung|kasi|tapos|at|ang|ng|sa|si|mga))[\s.,]*$/i;
-const THINK_MS = 3000;
+const THINK_MS = 2000;
 const MAX_HOLDS = 3;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -95,6 +96,8 @@ let visit = 0; // bumped by every wake and reset, so stale async work can tell i
 let inflight: AbortController | undefined;
 let latencyStart = 0;
 let latencyFrom = "";
+let latencyMark = 0;
+let latencySteps: string[] = []; // how long each step to the reply took, for the D panel
 let held = { visit: -1, text: "", holds: 0 }; // an unfinished sentence, waiting for the rest
 let holdUntil = 0;
 let transcribing = false;
@@ -145,9 +148,24 @@ const listener = await createListener(speaker.audioContext, config.vad, {
 await listener.start();
 await listener.pause();
 
+function startLatency(from: string, at = performance.now()) {
+  latencyStart = latencyMark = at;
+  latencyFrom = from;
+  latencySteps = [];
+}
+
+// Notes how long the step that just ended took, e.g. "hearing 620".
+function step(name: string) {
+  if (!latencyStart) return;
+  const now = performance.now();
+  latencySteps.push(`${name} ${Math.round(now - latencyMark)}`);
+  latencyMark = now;
+}
+
 function onAudioStart() {
   if (!latencyStart) return;
-  operator.set("reply", `voice started ${Math.round(performance.now() - latencyStart)} ms after ${latencyFrom}`);
+  step("voice");
+  operator.set("reply", `voice started ${Math.round(performance.now() - latencyStart)} ms after ${latencyFrom} (${latencySteps.join(" · ")} ms)`);
   latencyStart = 0;
 }
 
@@ -185,6 +203,7 @@ async function respond(v: number) {
   inflight = new AbortController();
   let speaking = false;
   let tone = FUN_TONE; // the voice follows the latest mood tag, so a reply can go from grand to cheeky
+  let firstWord = true;
   const chunker = createChunker((chunk) => {
     const moods = chunk.moods.filter((m): m is Mood => (MOODS as readonly string[]).includes(m));
     if (moods.length) tone = MOOD_VOICE[moods[moods.length - 1]];
@@ -210,6 +229,10 @@ async function respond(v: number) {
     });
     for await (const event of readEvents(res)) {
       if ("delta" in event) {
+        if (firstWord) {
+          firstWord = false;
+          step("AI");
+        }
         if (!chunker.push(event.delta)) {
           inflight.abort();
           break;
@@ -218,6 +241,8 @@ async function respond(v: number) {
       else operator.set("llm", `${event.provider} · first word ${event.firstTokenMs} ms`);
     }
     chunker.end();
+    // Nothing sayable, e.g. a reply in another language: ask again rather than stand silent.
+    if (!speaking && v === visit) throw new Error("the reply had no English words to say");
   } catch (e) {
     if (v !== visit) return;
     console.warn("[chat]", e);
@@ -244,8 +269,8 @@ async function onUtterance(audio: Float32Array) {
   const v = visit;
   void listener.pause();
   // The VAD fires after redemptionMs of silence; the child stopped talking that long ago.
-  latencyStart = performance.now() - config.vad.redemptionMs;
-  latencyFrom = "the child stopped";
+  startLatency("the child stopped", performance.now() - config.vad.redemptionMs);
+  step("silence");
   // The face keeps listening while the words are written down: they may turn out unfinished.
   transcribing = true;
   let text = "";
@@ -255,6 +280,7 @@ async function onUtterance(audio: Float32Array) {
     const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
     if (!res.ok) throw new Error(body.error);
     text = body.text ?? "";
+    step("hearing");
     sttLine = `${body.provider} · ${body.ms} ms`;
     operator.set("stt", sttLine);
   } catch (e) {
@@ -297,8 +323,7 @@ async function finishHeld(v: number) {
   const text = held.text;
   held = { visit: v, text: "", holds: 0 };
   void listener.pause();
-  latencyStart = performance.now();
-  latencyFrom = "the wait for more ended";
+  startLatency("the wait for more ended");
   await answer(v, text);
 }
 
@@ -323,8 +348,7 @@ async function wake() {
   state.set("WAKING");
   await delay(1200); // let the mask fade in
   if (v !== visit) return;
-  latencyStart = performance.now();
-  latencyFrom = "the opening started";
+  startLatency("the opening started");
   conversation.add({ role: "user", content: ARRIVAL });
   conversation.add({ role: "assistant", content: `[[effect:thunder]] [[mood:grand]] ${OPENING}` });
   operator.transcript(`mirror: ${OPENING}`);
