@@ -11,7 +11,8 @@
     "prestart": "vite build",
     "start": "node --env-file-if-exists=.env server/index.ts --prod",
     "bench": "node --env-file-if-exists=.env scripts/bench.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/run.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

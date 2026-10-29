@@ -19,7 +19,7 @@ const STT_MODELS = (process.env.STT_MODEL || "whisper-large-v3,whisper-large-v3-
 // The Groq voice needs a Groq key; without one, or with TTS_ENGINE=piper, the local Piper voice speaks.
 const TTS_ENGINE = process.env.TTS_ENGINE === "piper" || !groqKeyCount() ? "piper" : "groq";
 // Things worth remembering across restarts (not secrets): which Groq voice is deepest.
-const MEMORY_FILE = join(ROOT, ".mirror-memory.json");
+const MEMORY_FILE = process.env.MIRROR_MEMORY_FILE || join(ROOT, ".mirror-memory.json"); // the tests use a temporary one
 const remembered = (): { deepestVoice?: { model: string; voices: string[]; voice: string; pitches: Record<string, number> } } => {
   try {
     return JSON.parse(readFileSync(MEMORY_FILE, "utf8"));
