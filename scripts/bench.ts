@@ -46,7 +46,7 @@ async function benchGroqStt(wav: Buffer) {
   try {
     for (let i = 0; i < 3; i++) {
       const t = performance.now();
-      text = await transcribeGroq(wav, GROQ_STT_MODEL);
+      text = (await transcribeGroq(wav, GROQ_STT_MODEL)).text;
       runs.push(performance.now() - t);
     }
     console.table({ firstRun: ms(runs[0]), warmMedian: ms(median(runs.slice(1))), transcript: text });
