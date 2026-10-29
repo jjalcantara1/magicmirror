@@ -3,6 +3,7 @@ import { utils } from "@ricky0123/vad-web";
 import { createChunker, createConversation } from "./conversation.ts";
 import { EFFECTS, MOODS, type Effect, type Mood } from "./face/face.ts";
 import { createMaskFace } from "./face/maskFace.ts";
+import { CUES, FOGGY, GOODBYES, MOOD_VOICE, OPENING, SMUDGE } from "./lines.ts";
 import { createListener, type VadConfig } from "./listen.ts";
 import { createOperator } from "./operator.ts";
 import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
@@ -11,58 +12,9 @@ import { createState } from "./state.ts";
 type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig; wake: { words: boolean; hint: boolean; idleSleepS: number } };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-// Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
-// No "..." in it: an ellipsis after repeated words can set the Groq voice looping.
-const OPENING = "Mirror, mirror, on the wall, who is the fairest of them all? Step closer, and let the magic glass decide!";
 // A stage note before it, so the chat history still starts with the visitor.
 const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
-// Lines for the operator's keys: C grants a treat, H wishes Happy Halloween. Scripted, so they start
-// at once and need no AI; the note tells the AI what happened.
-const CUES = {
-  candy: {
-    mood: "excited",
-    effect: "sparkle",
-    note: "(The mirror grants the visitor a treat.)",
-    lines: [
-      "The glass has spoken: take your treat!",
-      "Ka-BOOM! A treat for the bravest visitor of all!",
-      "Abraca-PUMPKIN! Your treat is waiting. Go on, take it!",
-      "Hee hee! You have earned a treat. Take it, quick!",
-      "By my golden frame, a treat for you!",
-    ],
-  },
-  halloween: {
-    mood: "happy",
-    effect: "glow",
-    note: "(The visitor is leaving.)",
-    lines: [
-      "Happy Halloween! May your night be full of treats and giggles!",
-      "Happy Halloween, brave visitor! The glass will miss you!",
-      "Happy Halloween! Come back next year in your best costume!",
-      "Goodbye, and happy Halloween! Mind my shiny glass on your way out!",
-      "Happy Halloween! The Queen says hi... and she is a little jealous!",
-    ],
-  },
-} satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
-const FOGGY = "Oops, my glass is foggy! Say that again?"; // when hearing fails
-// Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
-// "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]"; each direction
-// makes it more acted, so a reply gets one only where its tone changes, see tts.worker.ts).
-// Fun, cheeky and calm, so small children can follow: playful for anything teasing or funny,
-// cheerful for warm moments. Dramatic and whisper sounded odd, and excited rushes the words.
-const MOOD_VOICE: Record<Mood, string> = {
-  grand: "cheerful",
-  happy: "cheerful",
-  laugh: "playful",
-  surprised: "playful",
-  sly: "playful",
-  wink: "playful",
-  spooky: "playful",
-  gentle: "cheerful",
-  excited: "cheerful",
-  love: "cheerful",
-};
 const FUN_TONE = "playful"; // until a reply's first mood tag
 // The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
 // magic mirror). Speech-to-text writes them in many ways, so match the core of them.
@@ -72,13 +24,6 @@ const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bs
 const WAKE =
   /\b(?:hello|hellow|helo|hallo|halo|hullo|hi|hiya|hey|wake up|good (?:morning|evening|night)|kumusta|musta)\b[\s,!.]*(?:there[\s,!.]*)?(?:magic(?:al)?\s+|mahiwagang\s+)?(?:mirror|mirrors|mira|mirra|meera|mera|salamin)\b/i;
 const WAKE_MAX_S = 5; // a wake call is short; longer talk while asleep is not sent to be heard
-// Said when the child has gone quiet for config.wake.idleSleepS: goodbye, and how to wake it again.
-// No "..." in them: an ellipsis can set the Groq voice looping.
-const GOODBYES = [
-  "Farewell, brave visitor! Say hello mirror to wake me again!",
-  "Time for my beauty sleep! Say hello mirror to wake me!",
-  "Happy Halloween! Say hello mirror, and I will wake up again!",
-];
 // Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
@@ -185,6 +130,20 @@ if (speaker.audioContext.state !== "running") {
   });
 }
 void listenForWake(visit, 0);
+// Keep the screen on all night. The browser lets go of it when the page is hidden, so ask again
+// when it shows. (Windows may still sleep the laptop on battery: see PARTY.md.)
+async function keepScreenOn() {
+  try {
+    await navigator.wakeLock?.request("screen");
+    operator.set("screen", "kept on");
+  } catch (e) {
+    operator.set("screen", `may dim: ${(e as Error).message}`);
+  }
+}
+void keepScreenOn();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void keepScreenOn();
+});
 // A child who walks away: after config.wake.idleSleepS of quiet, goodbye and sleep.
 setInterval(() => {
   const idleMs = config.wake.idleSleepS * 1000;
@@ -292,7 +251,7 @@ async function respond(v: number) {
     operator.set("llm", `failed: ${(e as Error).message}`);
     if (!speaking) {
       state.set("SPEAKING");
-      speaker.say("Oops! A smudge on my glass! Can you ask me again?", MOOD_VOICE.surprised, () => face.setMood("surprised"));
+      speaker.say(SMUDGE, MOOD_VOICE.surprised, () => face.setMood("surprised"));
     }
   }
   if (v !== visit) return;

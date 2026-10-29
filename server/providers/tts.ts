@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tooLong } from "../../src/runaway.ts";
@@ -28,8 +28,14 @@ function countToday(field: "requests" | "fromDisk") {
   usage[field]++;
 }
 
+const cacheFile = (text: string, voice: string, model: string) =>
+  join(CACHE_DIR, `${createHash("sha1").update(`${model}|${voice}|${text}`).digest("hex")}.wav`);
+
+/** Whether this line is already on disk, so saying it costs no Groq request. */
+export const isCached = (text: string, voice: string, model: string) => existsSync(cacheFile(text, voice, model));
+
 export async function speakCached(text: string, voice: string, model: string): Promise<Buffer> {
-  const file = join(CACHE_DIR, `${createHash("sha1").update(`${model}|${voice}|${text}`).digest("hex")}.wav`);
+  const file = cacheFile(text, voice, model);
   try {
     const wav = readFileSync(file);
     const now = new Date();

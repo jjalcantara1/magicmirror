@@ -1,4 +1,7 @@
+import { sayable } from "./lines.ts";
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
+
+export { sayable }; // tests import it from here
 
 /**
  * pitch: below 1 is deeper (at the same speed). speed: above 1 is faster (at the same pitch).
@@ -11,10 +14,6 @@ export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number
  */
 export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean };
 
-// The voices are English, so spell the two short Tagalog words they get wrong as they sound:
-// "ng" is said "nang" and "mga" "manga". Neither is an English word. A contraction like "ano'ng"
-// (ano ang) is left alone.
-export const sayable = (text: string) => text.replace(/(?<![\w'’])ng\b/gi, "nang").replace(/(?<![\w'’])mga\b/gi, "manga");
 
 // A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
 function hallImpulse(ctx: BaseAudioContext, seconds: number): AudioBuffer {
