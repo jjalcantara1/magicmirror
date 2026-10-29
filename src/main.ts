@@ -8,7 +8,7 @@ import { createOperator } from "./operator.ts";
 import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
 import { createState } from "./state.ts";
 
-type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig };
+type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig; wake: { words: boolean; hint: boolean; idleSleepS: number } };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
 // Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
@@ -66,6 +66,18 @@ const FUN_TONE = "playful"; // until a reply's first mood tag
 // The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a
 // magic mirror). Speech-to-text writes them in many ways, so match the core of them.
 const SUMMONS = /\bmirror\W+mirror\b|\bmagic mirror\b|\bmirror on the wall\b|\bsalamin\W+salamin\b|\bsalamin sa dingding\b|\bmahiwagang salamin\b/i;
+// What wakes the sleeping mirror: "hello mirror" and friends, and the magic words above. Whisper
+// writes "mirror" in many ways (mira, mirra, meera); "salamin" is Tagalog for mirror.
+const WAKE =
+  /\b(?:hello|hellow|helo|hallo|halo|hullo|hi|hiya|hey|wake up|good (?:morning|evening|night)|kumusta|musta)\b[\s,!.]*(?:there[\s,!.]*)?(?:magic(?:al)?\s+|mahiwagang\s+)?(?:mirror|mirrors|mira|mirra|meera|mera|salamin)\b/i;
+const WAKE_MAX_S = 5; // a wake call is short; longer talk while asleep is not sent to be heard
+// Said when the child has gone quiet for config.wake.idleSleepS: goodbye, and how to wake it again.
+// No "..." in them: an ellipsis can set the Groq voice looping.
+const GOODBYES = [
+  "Farewell, brave visitor! Say hello mirror to wake me again!",
+  "Time for my beauty sleep! Say hello mirror to wake me!",
+  "Happy Halloween! Say hello mirror, and I will wake up again!",
+];
 // Groq's Orpheus male voices (checked 2026-10). The server picks the deepest; press V to hear each.
 const GROQ_VOICES = ["troy", "daniel", "austin"];
 // Piper "medium" voices: 3-4x faster than real time on the party laptop; "high" ones are 2.6x
@@ -101,6 +113,8 @@ let latencySteps: string[] = []; // how long each step to the reply took, for th
 let held = { visit: -1, text: "", holds: 0 }; // an unfinished sentence, waiting for the rest
 let holdUntil = 0;
 let transcribing = false;
+let hearingWake = false; // a sleeping mirror is checking whether it heard "hello mirror"
+let lastActivity = performance.now(); // the last time a child spoke near the mirror, or it spoke
 
 const config = (await (await fetch("/api/config")).json()) as Config;
 const face = createMaskFace(document.querySelector("#mirror")!);
@@ -111,9 +125,15 @@ const speaker = createSpeaker(config.tts, config.voiceFx, {
   onAudioStart,
   onPiece: (genMs, audioSec, by) => operator.set("speech", `${by}: ${Math.round(genMs)} ms to make ${audioSec.toFixed(1)} s of audio`),
 });
+const hint = document.querySelector<HTMLDivElement>("#hint")!;
+let booted = false;
+// "Say Hello, Mirror!" glows while the mirror sleeps, once it has loaded.
+const showHint = () => (hint.hidden = !(booted && state.get() === "SLEEPING" && config.wake.words && config.wake.hint));
 const state = createState((s, faceState) => {
   face.setState(faceState);
   operator.set("state", s);
+  lastActivity = performance.now();
+  showHint();
   if (s === "THINKING") speaker.chime();
 });
 face.setState("asleep");
@@ -123,6 +143,8 @@ operator.set("tts", "loading…");
 void speaker.ready.then((engine) => {
   operator.set("tts", engine);
   document.querySelector("#boot")?.remove();
+  booted = true;
+  showHint();
 });
 
 const listener = await createListener(speaker.audioContext, config.vad, {
@@ -131,6 +153,7 @@ const listener = await createListener(speaker.audioContext, config.vad, {
     if (aboveDb === undefined) return operator.set("heard", "measuring the room…");
     const level = `${aboveDb.toFixed(0)} dB above the room (${config.vad.nearDb > 0 ? `needs ${config.vad.nearDb}` : "filter off"})`;
     operator.set("heard", near ? level : `IGNORED, too far away or too quiet: ${level}`);
+    if (near) lastActivity = performance.now();
   },
   onFrame: (p, level) => {
     // While a sentence is held, the child talking again keeps the mirror waiting.
@@ -147,6 +170,23 @@ const listener = await createListener(speaker.audioContext, config.vad, {
 // Ask for the mic now, so the permission prompt does not appear in the middle of a greeting.
 await listener.start();
 await listener.pause();
+// Browsers start sound (and so the mic's speech detector) only after a key press or click, unless
+// Chrome is started with start-mirror.bat. Any key or click lets it start.
+const unlock = () => void speaker.resume();
+addEventListener("keydown", unlock);
+addEventListener("pointerdown", unlock);
+if (speaker.audioContext.state !== "running") {
+  operator.set("sound", "waiting for a key press or click (start-mirror.bat skips this)");
+  speaker.audioContext.addEventListener("statechange", () => {
+    if (speaker.audioContext.state === "running") operator.set("sound", "on");
+  });
+}
+void listenForWake(visit, 0);
+// A child who walks away: after config.wake.idleSleepS of quiet, goodbye and sleep.
+setInterval(() => {
+  const idleMs = config.wake.idleSleepS * 1000;
+  if (idleMs > 0 && state.get() === "LISTENING" && !transcribing && !held.text && performance.now() - lastActivity > idleMs) void dozeOff();
+}, 1000);
 
 function startLatency(from: string, at = performance.now()) {
   latencyStart = latencyMark = at;
@@ -264,7 +304,36 @@ async function respond(v: number) {
   await listen(v);
 }
 
+// Writes down what was said: the text, and the line for the D panel. Throws when hearing fails.
+async function hear(audio: Float32Array): Promise<{ text: string; line: string }> {
+  const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
+  const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
+  if (!res.ok) throw new Error(body.error);
+  return { text: body.text ?? "", line: `${body.provider} · ${body.ms} ms` };
+}
+
+// While asleep the mirror listens only for "hello mirror", and answers nothing else.
+async function hearWake(audio: Float32Array) {
+  if (!config.wake.words || hearingWake) return;
+  if (audio.length > 16000 * WAKE_MAX_S) return operator.set("stt", "asleep: long talk, not a wake call");
+  const v = visit;
+  hearingWake = true;
+  let text = "";
+  try {
+    text = (await hear(audio)).text;
+  } catch (e) {
+    operator.set("stt", `asleep: hearing failed (${(e as Error).message})`);
+  }
+  hearingWake = false;
+  if (v !== visit || state.get() !== "SLEEPING" || !text) return;
+  if (WAKE.test(text) || SUMMONS.test(text)) {
+    operator.set("stt", `woke on "${text}"`);
+    void wake();
+  } else operator.set("stt", `asleep: heard "${text}" (not the wake words)`);
+}
+
 async function onUtterance(audio: Float32Array) {
+  if (state.get() === "SLEEPING") return void hearWake(audio);
   if (state.get() !== "LISTENING") return;
   const v = visit;
   void listener.pause();
@@ -276,12 +345,8 @@ async function onUtterance(audio: Float32Array) {
   let text = "";
   let sttLine = "";
   try {
-    const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
-    const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
-    if (!res.ok) throw new Error(body.error);
-    text = body.text ?? "";
+    ({ text, line: sttLine } = await hear(audio));
     step("hearing");
-    sttLine = `${body.provider} · ${body.ms} ms`;
     operator.set("stt", sttLine);
   } catch (e) {
     console.warn("[stt]", e);
@@ -343,6 +408,7 @@ async function wake() {
   void speaker.resume();
   if (state.get() !== "SLEEPING") return;
   const v = ++visit;
+  void listener.pause(); // it was listening for "hello mirror"
   conversation.reset();
   operator.clearTranscript();
   state.set("WAKING");
@@ -409,6 +475,29 @@ function reset() {
   conversation.reset();
   operator.clearTranscript();
   state.set("SLEEPING");
+  void listenForWake(visit);
+}
+
+// Asleep, the mic listens for "hello mirror", once the mirror's own voice has died away.
+async function listenForWake(v: number, tailMs = ECHO_TAIL_MS) {
+  if (!config.wake.words) return;
+  await delay(tailMs);
+  if (v !== visit || state.get() !== "SLEEPING") return;
+  await listener.start();
+}
+
+// The child has gone: a goodbye that also tells the next child how to wake the mirror, then sleep.
+// Sleeping wipes the chat, so the next child starts fresh.
+async function dozeOff() {
+  const v = ++visit;
+  void listener.pause();
+  const text = GOODBYES[Math.floor(Math.random() * GOODBYES.length)];
+  operator.transcript(`mirror: ${text} (nobody spoke for ${config.wake.idleSleepS} s)`);
+  state.set("GOODBYE");
+  speaker.say(text, MOOD_VOICE.happy, () => face.setMood("happy"));
+  await speaker.finish();
+  if (v !== visit) return;
+  reset();
 }
 
 // Voice audition: V cycles through the shortlist of the main voice. Put the winner in .env
@@ -420,6 +509,9 @@ function nextVoice() {
   speaker.setVoice(next);
   operator.set("voice", next);
   if (state.get() !== "SLEEPING") return;
+  // Not listening for "hello mirror" meanwhile: the opening's magic words would wake it.
+  const v = visit;
+  void listener.pause();
   speaker.say(OPENING, MOOD_VOICE.grand);
-  void speaker.finish();
+  void speaker.finish().then(() => listenForWake(v));
 }
