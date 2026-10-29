@@ -8,6 +8,7 @@ import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers
 import { sttStatus, transcribe } from "./providers/stt.ts";
 import { groqKeyCount, keyHints, keyStatus, unreadKeyNames } from "./providers/groqKeys.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakCached, ttsStatus } from "./providers/tts.ts";
+import { startupCheck } from "./startupCheck.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
 // The project folder. Paths start here, not at the working folder, so the server finds the page
@@ -212,6 +213,11 @@ app.listen(PORT, "127.0.0.1", (error?: Error) => {
   console.log(groqKeyCount() ? `[groq] using ${groqKeyCount()} key${groqKeyCount() > 1 ? "s" : ""}: ${keyHints().join(", ")}` : "[groq] no GROQ_API_KEY: the local voice only, and no AI");
   for (const name of unreadKeyNames())
     console.warn(`[groq] ${name} looks like a Groq key but is not read: name it GROQ_API_KEY_2 (or _3...), or list all keys in GROQ_API_KEY separated by commas`);
+  // Once the voice is chosen, check the voice, hearing and AI, and record the scripted lines.
+  if (groqKeyCount() && process.env.STARTUP_CHECK !== "off")
+    void chooseVoice()
+      .then(() => startupCheck({ voiceEngine: TTS_ENGINE, voice: groqVoice, voiceModel: TTS_MODEL, acting: process.env.VOICE_ACTING !== "off", sttModels: STT_MODELS }))
+      .then((lines) => lines.forEach((line) => console.log(line)));
 });
 
 // Keep the offline fallback model loaded. Re-warm in case a request reset Ollama's keep-alive.
