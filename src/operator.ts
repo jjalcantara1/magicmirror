@@ -17,6 +17,27 @@ export function createOperator(handlers: Handlers) {
   let status = "";
   let scheduled = false;
 
+  // Everything the panel shows also goes to the server window (see server/monitor.ts), so a second
+  // screen can watch without the panel on the glass. Not the mic meter: it changes many times a second.
+  const outbox: { key: string; value: string }[] = [];
+  let sending = false;
+  function forward(key: string, value: string) {
+    if (key === "mic" || key === "keys") return;
+    outbox.push({ key, value });
+    if (!sending) {
+      sending = true;
+      setTimeout(flush, 200);
+    }
+  }
+  async function flush() {
+    const events = outbox.splice(0);
+    try {
+      await fetch("/api/monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ events }) });
+    } catch {}
+    sending = outbox.length > 0;
+    if (sending) setTimeout(flush, 200);
+  }
+
   function render() {
     scheduled = false;
     if (panel.hidden) return;
@@ -91,19 +112,25 @@ export function createOperator(handlers: Handlers) {
 
   return {
     set(key: string, value: string) {
+      if (fields.get(key) !== value) forward(key, value);
       fields.set(key, value);
       schedule();
     },
     transcript(line: string) {
       transcript = [...transcript, line].slice(-12);
+      const [, who, words] = /^(child|mirror):\s*(.*)$/.exec(line) ?? [];
+      forward(who ?? "chat", words ?? line);
       schedule();
     },
     clearTranscript() {
+      if (transcript.length) forward("visit", "chat wiped: the next child starts fresh");
       transcript = [];
       schedule();
     },
-    alert() {
+    /** The mirror flagged a worrying message: the red dot, and a loud line in the server window. */
+    alert(lastWords = "") {
       alertDot.hidden = false;
+      forward("ALERT", `the mirror flagged a worrying message. The child said: "${lastWords}"`);
     },
   };
 }

@@ -42,6 +42,8 @@
 
 ## The D panel
 
+The same lines also show live in the black server window, with the time, what each child said and how the mirror answered. Put that window on a second screen to watch the mirror without the panel on the glass. Alerts show in red. `MONITOR=off` in `.env` keeps the window quiet. Nothing in it is saved.
+
 | Line | What it tells you |
 |---|---|
 | `state` | Sleeping, listening, thinking or speaking. |

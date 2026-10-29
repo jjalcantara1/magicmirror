@@ -43,11 +43,11 @@ const tts = []; // { text, at }
 let ttsFail = false;
 let mode = "slow";
 let chats = 0;
+// 20 words (the most a reply may have), but more than Groq's 200 characters after the first sentence.
 const LONG = [
   "[[mood:grand]] Magnificent! Extraordinary! Spectacular! ",
   "Your marvellous costume is absolutely unbelievable, wonderfully frightening and incredibly imaginative! ",
-  "[[mood:wink]] Unquestionably, the enchanted mirror congratulates everybody tonight. ",
-  "Remarkable!",
+  "[[mood:wink]] Unquestionably, the enchanted looking-glass congratulates everybody!",
 ];
 await context.route("**/@ricky0123_vad-web.js*", (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: `
   export const utils = { encodeWAV: () => new ArrayBuffer(44) };
@@ -72,7 +72,7 @@ await context.route("**/api/chat", (route) => {
     mode === "long" ? LONG
     : mode === "mixed" ? ["[[mood:happy]] Hello! 你好，小朋友！ ", "What a spooky costume!"]
     : mode === "chinese" ? ["[[mood:happy]] 你好！", "小朋友，万圣节快乐！"]
-    : ["[[mood:happy]] Hello, brave visitor! ", "What is your costume?"];
+    : ["[[mood:happy]] Hello, brave friend! ", "What is your costume?"];
   route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: deltas.map((d) => `data: ${JSON.stringify({ delta: d })}\n\n`).join("") + 'data: {"done":true,"provider":"mock","firstTokenMs":5}\n\n' });
 });
 // When each voice sound starts and how long it plays, in page time (ms).
@@ -104,14 +104,14 @@ async function until(test, ms = 15000) {
 }
 
 // 1. A slow AI.
-slowText = ["[[mood:happy]] Hello there, brave visitor! ", "[[mood:wink]] My frame is gold. What is your costume?"];
+slowText = ["[[mood:happy]] Hello there, brave friend! ", "[[mood:wink]] My frame is gold. What is your costume?"];
 await page.keyboard.press("g");
 await until(() => slowFirstAt > 0);
 await until(async () => tts.some((t) => t.text.includes("My frame is gold")) && (await stateNow()) === "LISTENING", 12000);
 const first = tts.find((t) => t.text.includes("Hello there"));
 const rest = tts.find((t) => t.text.includes("My frame is gold"));
 console.log("slow AI requests:", tts.slice(1).map((t) => `${t.text} (+${t.at - slowFirstAt} ms)`).join(" | "));
-ok(first?.text === "[cheerful] Hello there, brave visitor!" && first.at - slowFirstAt < 300, `slow AI: the first sentence goes to Groq at once (${first && first.at - slowFirstAt} ms)`);
+ok(first?.text === "[cheerful] Hello there, brave friend!" && first.at - slowFirstAt < 300, `slow AI: the first sentence goes to Groq at once (${first && first.at - slowFirstAt} ms)`);
 ok(rest?.text === "[playful] My frame is gold. What is your costume?" && rest.at - slowFirstAt >= 2400, "slow AI: the rest is one more take, in its own tone");
 const timing = (await panel()).match(/^reply\s*(.*)$/m)?.[1] ?? "";
 console.log("reply line:", timing);

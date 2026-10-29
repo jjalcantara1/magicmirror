@@ -70,7 +70,7 @@ for (const file of readdirSync(join(ROOT, "tests/unit")).filter((f) => f.endsWit
 
 // Browser tests, against a test mirror on PORT with a fake key. Some need other settings.
 const groups: { env: Record<string, string>; tests: [string, ...string[]][] }[] = [
-  { env: {}, tests: [["opening"], ["acting", "on"], ["take"], ["taglish"], ["keys"], ["reset"], ["think"], ["loop"], ["party"]] },
+  { env: {}, tests: [["opening"], ["acting", "on"], ["take"], ["taglish"], ["keys"], ["reset"], ["think"], ["loop"], ["party"], ["monitor"]] },
   { env: { VOICE_ACTING: "off" }, tests: [["acting", "off"]] },
   { env: { IDLE_SLEEP_S: "4" }, tests: [["wake"]] },
 ];

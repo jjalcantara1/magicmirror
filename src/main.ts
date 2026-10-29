@@ -185,9 +185,9 @@ async function* readEvents(res: Response): AsyncGenerator<ChatEvent> {
 }
 
 function raiseAlert() {
-  operator.alert();
-  speaker.beep();
   const last = conversation.turns().findLast((t) => t.role === "user");
+  operator.alert(last?.content);
+  speaker.beep();
   console.warn("[ALERT] The mirror flagged a worrying message. Please check on the child. Last words:", last?.content);
 }
 

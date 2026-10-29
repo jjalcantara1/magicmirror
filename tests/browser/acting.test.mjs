@@ -12,7 +12,7 @@ await context.route("**/api/tts", (route) => { tts.push(JSON.parse(route.request
 await context.route("**/api/stt", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text: "Me! I'm the fairest!", ms: 5 }) }));
 await context.route("**/api/chat", (route) => {
   chats.push(JSON.parse(route.request().postData()).turns);
-  const deltas = ["[[effect:thunder]] [[mood:grand]] Fair art thou, 'tis true, a thousand times ", "fairer than the Queen! [[mood:wink]] Translation: you win, and she will be SO grumpy! ", "What costume dost thou wear?"];
+  const deltas = ["[[effect:thunder]] [[mood:grand]] Yes! You beat the Queen ", "by a mile! [[mood:wink]] Translation: you win! ", "What are you dressed as?"];
   route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: deltas.map((d) => `data: ${JSON.stringify({ delta: d })}\n\n`).join("") + 'data: {"done":true,"provider":"mock","firstTokenMs":5}\n\n' });
 });
 // Headless Chrome never finishes starting the real voice detector, so a stand-in "hears" the child
@@ -52,8 +52,8 @@ const replyReqs = tts.slice(1);
 if (acting) {
   ok(tts[0].startsWith("[cheerful] Mirror, mirror, on the wall"), "the opening is said in a cheerful tone");
   ok(replyReqs.length === 2, `the first sentence, then the rest; the same reply again comes from memory (${replyReqs.length} requests)`);
-  ok(replyReqs[0] === "[cheerful] Fair art thou, 'tis true, a thousand times fairer than the Queen!", "the grand first sentence alone, cheerful");
-  ok(replyReqs[1] === "[playful] Translation: you win, and she will be SO grumpy! What costume dost thou wear?", "the cheeky rest as one take, playful, one direction");
+  ok(replyReqs[0] === "[cheerful] Yes! You beat the Queen by a mile!", "the grand first sentence alone, cheerful");
+  ok(replyReqs[1] === "[playful] Translation: you win! What are you dressed as?", "the cheeky rest as one take, playful, one direction");
 } else {
   ok(tts.every((t) => !t.includes("[")), "acting off: no directions sent");
 }

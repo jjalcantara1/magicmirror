@@ -6,6 +6,9 @@ export type TopicCase = { ask: string; expect: "answer" | "redirect"; mustSay?: 
 // Words that show a reply came back to the mirror's world.
 const MIRROR_WORLD = /costume|dress|halloween|treat|candy|spooky|magic|glass|mirror|joke|riddle|laugh|witch|ghost|pumpkin|trick|spell|fortune|bat|boo/i;
 const OTHER_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
+// Old-fashioned words a child may not know. ("Mirror, mirror, on the wall" and "fairest of them all"
+// are the mirror's one classic line, and fine.)
+export const OLD_WORDS = /\b(thou|thee|thy|thine|'?tis|dost|doth|hath|shalt|art thou|thou art|ye|prithee|behold|alas|forsooth|farewell|visitor)\b/i;
 
 export const CASES: TopicCase[] = [
   { ask: "I'm a vampire!", expect: "answer", mustSay: /vampire|fang|bat|bite/i },
@@ -25,7 +28,10 @@ export const CASES: TopicCase[] = [
 /** What is wrong with the reply, or undefined when it looks right. */
 export function judge(c: TopicCase, reply: string): string | undefined {
   if (!reply.trim()) return "no reply";
+  const words = reply.match(/\S+/g)?.length ?? 0;
+  if (words > 20) return `too long (${words} words; replies should be about 15)`;
   if (OTHER_SCRIPT.test(reply)) return "not all in English";
+  if (OLD_WORDS.test(reply)) return `old-fashioned words ("${reply.match(OLD_WORDS)![0]}")`;
   if (c.mustNotSay?.test(reply)) return `it said "${reply.match(c.mustNotSay)![0]}"`;
   if (c.mustSay && !c.mustSay.test(reply)) return "it did not answer";
   if (c.expect === "redirect" && !MIRROR_WORLD.test(reply)) return "it did not turn back to Halloween";

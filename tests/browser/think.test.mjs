@@ -17,7 +17,7 @@ let page;
 await context.route("**/api/stt", async (route) => { const text = heard.shift() ?? ""; said.push(text); if (text && text === muteAfter) await page.evaluate(() => (window.__mute = true)); route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ text, ms: 5, provider: "groq whisper-large-v3" }) }); });
 await context.route("**/api/chat", (route) => {
   chats.push(JSON.parse(route.request().postData()).turns);
-  const deltas = ["[[mood:happy]] Hello, visitor! ", "My gold frame is shining for you. ", "What is your costume?"];
+  const deltas = ["[[mood:happy]] Hello, friend! ", "My gold frame is shining for you. ", "What is your costume?"];
   route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: deltas.map((d) => `data: ${JSON.stringify({ delta: d })}\n\n`).join("") + 'data: {"done":true,"provider":"mock","firstTokenMs":5}\n\n' });
 });
 await context.addInitScript(() => {

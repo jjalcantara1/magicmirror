@@ -8,6 +8,7 @@ import { chatStatus, chatWithFallback, warmOllama, type Turn } from "./providers
 import { sttStatus, transcribe } from "./providers/stt.ts";
 import { groqKeyCount, keyHints, keyStatus, unreadKeyNames } from "./providers/groqKeys.ts";
 import { findDeepestVoice, GROQ_MALE_VOICES, GROQ_TTS_MAX_CHARS, speakCached, ttsStatus } from "./providers/tts.ts";
+import { monitorLine, type MonitorEvent } from "./monitor.ts";
 import { startupCheck } from "./startupCheck.ts";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -122,6 +123,13 @@ app.get("/api/config", async (_req, res) => {
 
 app.get("/api/status", (_req, res) => {
   res.json({ keys: keyStatus(), llm: chatStatus(), stt: sttStatus(), tts: ttsStatus() });
+});
+
+// What the D panel shows, printed in this window for a second screen (server/monitor.ts).
+app.post("/api/monitor", express.json({ limit: "50kb" }), (req, res) => {
+  const events = (req.body as { events?: MonitorEvent[] } | undefined)?.events;
+  if (process.env.MONITOR !== "off" && Array.isArray(events)) for (const e of events.slice(0, 100)) console.log(monitorLine(e));
+  res.sendStatus(204);
 });
 
 // The browser's voice worker asks for each piece of speech here, so the Groq key stays on the laptop.

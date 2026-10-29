@@ -66,9 +66,9 @@ export function ollamaTarget(model: string): LlmTarget {
   return { provider: "ollama", model, label: `ollama:${model}`, client, extra: {} };
 }
 
-// Replies are at most 30 words (about 60 tokens with tags). Groq counts this cap against the
-// tokens-per-minute limit, so keep it small; gpt-oss also spends some of it on short reasoning.
-const maxTokens = (t: LlmTarget) => (t.provider !== "groq" ? 150 : t.model.startsWith("openai/gpt-oss") ? 400 : 150);
+// Replies are about 15 words, 20 at most (about 45 tokens with tags), so 80 tokens is plenty and stops
+// a rambling reply early. gpt-oss also spends some of its cap on short reasoning first.
+const maxTokens = (t: LlmTarget) => (t.provider === "groq" && t.model.startsWith("openai/gpt-oss") ? 300 : 80);
 
 export async function streamChat(
   target: LlmTarget,
