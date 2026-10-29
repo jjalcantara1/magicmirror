@@ -69,6 +69,7 @@ Change them in `.env`, then close both windows and double-click `start-mirror.ba
 | `WAKE_HINT` | on | `off` = no "Say Hello, Mirror!" in the glass. |
 | `VOICE_PITCH`, `VOICE_SPEED` | 0.8, 0.85 | Deeper/higher, slower/faster. |
 | `VOICE_ACTING` | on | `off` = one plain, natural tone. |
+| `REACTIONS` | on | A quick "Hmm!" or "Aha!" the moment it starts thinking. `off` = a soft chime instead. |
 | `STARTUP_CHECK` | on | `off` = skip the check at start. |
 
 ## If something goes wrong

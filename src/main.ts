@@ -80,7 +80,12 @@ const state = createState((s, faceState) => {
   operator.set("state", s);
   lastActivity = performance.now();
   showHint();
-  if (s === "THINKING") speaker.chime();
+  // The mirror reacts at once ("Hmm!") while the AI writes the answer; the soft chime is the fallback.
+  if (s === "THINKING") {
+    const said = speaker.react();
+    if (said) operator.set("react", `"${said}" while the AI thinks`);
+    else speaker.chime();
+  }
 });
 face.setState("asleep");
 operator.set("state", "SLEEPING");

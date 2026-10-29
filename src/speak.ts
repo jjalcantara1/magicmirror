@@ -1,4 +1,4 @@
-import { sayable } from "./lines.ts";
+import { MOOD_VOICE, REACTION_MOOD, REACTIONS, sayable } from "./lines.ts";
 import type { TtsReply, TtsRequest } from "./tts.worker.ts";
 
 export { sayable }; // tests import it from here
@@ -11,8 +11,9 @@ export type VoiceFx = { pitch: number; speed: number; echo: number; bass: number
 /**
  * engine: the main voice. voice: its voice id. piperVoice: the local backup voice.
  * acting: Groq says each piece in the tone given to say() (cheerful, whisper...).
+ * reactions: a quick "Hmm!" the moment the mirror starts thinking (react()), instead of the chime.
  */
-export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean };
+export type TtsConfig = { engine: "groq" | "piper"; voice: string; piperVoice: string; acting: boolean; reactions: boolean };
 
 
 // A stone hall: noise that dies away by 60 dB over `seconds`, after a short gap before the first echo.
@@ -59,6 +60,7 @@ export function mirrorVoice(ctx: BaseAudioContext, echo: number): AudioNode {
 // take): played back to back they ran together, which children found hard to follow. Seconds.
 const SENTENCE_GAP = 0.3;
 const COMMA_GAP = 0.12;
+const REACTION_GAP = 0.15; // after a "Hmm!", the answer follows quickly
 
 // Speaks reply pieces in order, and reports the mouth level and shape from the audio that is playing.
 export function createSpeaker(
@@ -83,7 +85,10 @@ export function createSpeaker(
   let engine: "worker" | "browser" = "worker";
   let generation = 0; // stop() bumps this, so audio from an old reply is dropped
   let line = 0; // each reply or scripted line; the worker joins a line's pieces into one Groq take
-  let lastText = ""; // the words that play last, to choose the pause before the next piece
+  let gapAfter = 0; // the pause before the next piece, chosen by how the last one ended
+  type Clip = { samples: Float32Array; bass: Float32Array; sampleRate: number };
+  const clips = new Map<string, Clip>(); // the reactions, recorded in the current voice
+  let lastReaction = "";
   type Piece = { text: string; onStart?: () => void };
   let pending: Piece[] = []; // sent to the worker, audio not back yet
   let outstanding = 0; // pieces not finished playing
@@ -120,12 +125,11 @@ export function createSpeaker(
     source.buffer = buffer;
     source.playbackRate.value = fx.pitch;
     source.connect(analyser);
-    const gap = nextStart ? (/[,;:]$/.test(lastText) ? COMMA_GAP : SENTENCE_GAP) : 0;
-    const at = Math.max(audioContext.currentTime + 0.03, nextStart + gap);
+    const at = Math.max(audioContext.currentTime + 0.03, nextStart ? nextStart + gapAfter : 0);
     const length = buffer.duration / fx.pitch;
     source.start(at);
     nextStart = at + length;
-    lastText = pieces[pieces.length - 1]?.text ?? "";
+    gapAfter = /[,;:]$/.test(pieces[pieces.length - 1]?.text ?? "") ? COMMA_GAP : SENTENCE_GAP;
     const gen = generation;
     // Each piece's face change comes as its words start, also inside a take of several pieces.
     pieces.forEach((p, i) => {
@@ -173,8 +177,12 @@ export function createSpeaker(
   const ready = new Promise<string>((resolve) => {
     worker.onmessage = (e: MessageEvent<TtsReply>) => {
       const msg = e.data;
-      if (msg.type === "ready") resolve(msg.engine);
-      else if (msg.type === "failed") {
+      if (msg.type === "ready") {
+        resolve(msg.engine);
+        prepareReactions();
+      } else if (msg.type === "prepared") {
+        if (msg.samples.length) clips.set(msg.key, { samples: msg.samples, bass: msg.bass, sampleRate: msg.sampleRate });
+      } else if (msg.type === "failed") {
         engine = "browser";
         resolve(`browser voice (Piper failed: ${msg.error})`);
         const pieces = pending;
@@ -188,6 +196,35 @@ export function createSpeaker(
     };
   });
   send({ type: "init", engine: tts.engine, voice, piperVoice: tts.piperVoice, pitch: fx.pitch, speed: fx.speed, bass: fx.bass > 0 });
+
+  // The reactions are recorded once the voice is ready (and again for a new voice), so react() plays
+  // one at once, with no wait for Groq.
+  function prepareReactions() {
+    clips.clear();
+    if (!tts.reactions) return;
+    const tone = tts.acting ? MOOD_VOICE[REACTION_MOOD] : "";
+    for (const text of REACTIONS) send({ type: "prepare", key: text, text: sayable(text), voice, tone });
+  }
+
+  // Plays a recorded clip now, through the mirror voice (so the mouth moves), ahead of the reply.
+  function playClip(clip: Clip) {
+    const at = Math.max(audioContext.currentTime + 0.02, nextStart ? nextStart + gapAfter : 0);
+    const start = (samples: Float32Array, to: AudioNode) => {
+      const buffer = audioContext.createBuffer(1, samples.length, clip.sampleRate);
+      buffer.copyToChannel(new Float32Array(samples), 0);
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = fx.pitch;
+      source.connect(to);
+      source.start(at);
+      sources.add(source);
+      source.onended = () => sources.delete(source);
+      return buffer.duration / fx.pitch;
+    };
+    nextStart = at + start(clip.samples, analyser);
+    if (clip.bass.length) start(clip.bass, bassIn);
+    gapAfter = REACTION_GAP;
+  }
 
   const frame = new Float32Array(analyser.fftSize);
   const spectrum = new Float32Array(analyser.frequencyBinCount);
@@ -281,7 +318,7 @@ export function createSpeaker(
       finished = true;
       waitingForFirst = false;
       nextStart = 0;
-      lastText = "";
+      gapAfter = 0;
       const resolvers = idle;
       idle = [];
       resolvers.forEach((resolve) => resolve());
@@ -289,13 +326,25 @@ export function createSpeaker(
     voice: () => voice,
     setVoice(next: string) {
       voice = next;
+      prepareReactions();
+    },
+    /**
+     * A quick "Hmm!" the moment the mirror starts thinking, never the same twice running. Returns
+     * what it said, or "" when no reaction is ready (then the caller plays the chime).
+     */
+    react(): string {
+      const choices = [...clips.keys()].filter((text) => text !== lastReaction);
+      if (!choices.length || engine !== "worker") return "";
+      lastReaction = choices[Math.floor(Math.random() * choices.length)];
+      playClip(clips.get(lastReaction)!);
+      return lastReaction;
     },
     /** Browsers start audio only after a user gesture; call this from a key handler. */
     resume: () => audioContext.resume(),
-    /** A short magical chime, so there is never dead silence while the mirror thinks. */
+    /** A soft, short sparkle while the mirror thinks, when no spoken reaction is ready. */
     chime() {
       const t = audioContext.currentTime;
-      [1318.5, 1975.5, 2637].forEach((f, i) => tone(f, "sine", t + i * 0.09, 0.06, 1.4));
+      [1975.5, 2637].forEach((f, i) => tone(f, "sine", t + i * 0.08, 0.02, 0.6));
     },
     /** Operator alert beep. */
     beep() {

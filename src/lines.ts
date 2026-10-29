@@ -36,6 +36,11 @@ export const CUES = {
     ],
   },
 } satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
+// Said the moment the mirror starts thinking, like a theme-park character reacting at once, while
+// the AI writes the real answer. Short and neutral (they come before any reply, even a sad one), and
+// not "Ooh": many replies start with "Ooh, a vampire!".
+export const REACTIONS = ["Hmm!", "Aha!", "Oh-ho!", "Let me see!"];
+export const REACTION_MOOD: Mood = "sly";
 // Said when hearing fails, and when the AI does not answer.
 export const FOGGY = "Oops, my glass is foggy! Say that again?";
 export const SMUDGE = "Oops! A smudge on my glass! Can you ask me again?";
@@ -81,5 +86,6 @@ export function scriptedTakes(acting: boolean): string[] {
     ...GOODBYES.map((line) => take(line, "happy")),
     take(FOGGY, "surprised"),
     take(SMUDGE, "surprised"),
+    ...REACTIONS.map((line) => take(line, REACTION_MOOD)),
   ];
 }
