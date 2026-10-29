@@ -3,7 +3,7 @@ import { utils } from "@ricky0123/vad-web";
 import { createChunker, createConversation } from "./conversation.ts";
 import { EFFECTS, MOODS, type Effect, type Mood } from "./face/face.ts";
 import { createMaskFace } from "./face/maskFace.ts";
-import { CUES, FOGGY, GOODBYES, MOOD_VOICE, OPENING, SMUDGE } from "./lines.ts";
+import { ARRIVAL, CUES, FOGGY, GOODBYES, MOOD_VOICE, OPENING, SMUDGE } from "./lines.ts";
 import { createListener, type VadConfig } from "./listen.ts";
 import { createOperator } from "./operator.ts";
 import { createSpeaker, type TtsConfig, type VoiceFx } from "./speak.ts";
@@ -12,8 +12,6 @@ import { createState } from "./state.ts";
 type Config = { tts: TtsConfig; voiceFx: VoiceFx; vad: VadConfig; wake: { words: boolean; hint: boolean; idleSleepS: number } };
 type ChatEvent = { delta: string } | { done: true; provider: string; firstTokenMs: number } | { error: string };
 
-// A stage note before it, so the chat history still starts with the visitor.
-const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
 const FUN_TONE = "playful"; // until a reply's first mood tag
 // The magic words, in English and in Tagalog ("Salamin, salamin sa dingding"; mahiwagang salamin is a

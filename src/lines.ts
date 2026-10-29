@@ -5,6 +5,8 @@ import type { Effect, Mood } from "./face/face.ts";
 // Every visit opens with the classic line, word for word, so it needs no AI and starts at once.
 // No "..." in it: an ellipsis after repeated words can set the Groq voice looping.
 export const OPENING = "Mirror, mirror, on the wall, who is the fairest of them all? Step closer, and let the magic glass decide!";
+// A stage note before it, so the chat history still starts with the visitor.
+export const ARRIVAL = "(A new visitor has just stepped up to the mirror.)";
 // Lines for the operator's keys: C grants a treat, H wishes Happy Halloween. Scripted, so they start
 // at once and need no AI; the note tells the AI what happened.
 export const CUES = {

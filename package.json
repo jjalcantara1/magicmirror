@@ -12,7 +12,8 @@
     "start": "node --env-file-if-exists=.env server/index.ts --prod",
     "bench": "node --env-file-if-exists=.env scripts/bench.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/run.ts"
+    "test": "node tests/run.ts",
+    "topics": "node --env-file-if-exists=.env scripts/topics.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

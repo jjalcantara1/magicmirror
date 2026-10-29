@@ -80,6 +80,20 @@ Change them in `.env`, then close both windows and double-click `start-mirror.ba
 | Stuck, or the face froze | Press X. If that doesn't help, close both windows and start again. |
 | Chrome was not found | Open http://127.0.0.1:5173 in any browser and press F11. |
 
+## What the mirror remembers
+
+- **The current child's chat:** only in the open page, and only its last 8 lines. It is wiped when the mirror sleeps (after 30 s of quiet, R, or N) and when the page restarts. It is never saved to disk.
+- **Who the mirror is:** its character and rules are in `src/prompt.ts`; its scripted lines are in `src/lines.ts`.
+- **On disk, in the `magicmirror` folder:**
+  - `.mirror-cache/voice`: the voice recordings of lines it has said (up to 300), so repeats cost nothing;
+  - `.mirror-memory.json`: which Groq voice is deepest.
+  - No recordings of children and no transcripts are kept. Delete either one to start fresh.
+- **Groq:** each reply sends the current child's chat to Groq. Groq does not keep it for the mirror; the mirror sends it again every time.
+
+## Is it staying on topic?
+
+`npm run topics` asks the real AI a dozen sample questions. Some are Halloween questions it should answer, like "How many legs does a spider have?". Others it should turn back to Halloween, like "What's nine times eight?" or "Do you like Minecraft?". It prints each reply with a rough verdict. It uses your Groq key, about a dozen short requests.
+
 ## Checking a change (for whoever edits the code)
 
 `npm test` runs every test with Groq, hearing and the AI faked. It needs no key and no internet, and it never touches your `.env` or the recorded lines. `npm test -- wake` runs only the tests named "wake".
