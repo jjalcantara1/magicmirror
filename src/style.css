@@ -6,7 +6,6 @@ body {
   overflow: hidden;
   background: #000;
   color: #9fe6d5;
-  cursor: none; /* no mouse pointer showing through the glass */
 }
 
 #flash {

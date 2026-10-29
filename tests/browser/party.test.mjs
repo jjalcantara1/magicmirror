@@ -1,4 +1,4 @@
-// Party-day page details, with Groq faked: no mouse pointer, the screen kept on, and the scripted
+// Party-day page details, with Groq faked: the mouse pointer stays (the operator uses it), the screen kept on, and the scripted
 // lines the page asks Groq for are exactly the ones the server records at start-up.
 import { fixture, launch, MIRROR } from "./helper.mjs";
 const { scriptedTakes } = await import("../../src/lines.ts");
@@ -24,7 +24,7 @@ const panel = async () => (await page.textContent("#debug")) ?? "";
 const stateNow = async () => (await panel()).match(/^state\s*(\S+)/m)?.[1];
 const until = async (test, ms = 10000) => { for (let t = 0; t < ms; t += 50) { if (await test()) return true; await page.waitForTimeout(50); } return false; };
 
-ok((await page.evaluate(() => getComputedStyle(document.body).cursor)) === "none", "no mouse pointer on the mirror");
+ok((await page.evaluate(() => getComputedStyle(document.body).cursor)) !== "none", "the mouse pointer stays visible, for the operator");
 ok((await page.evaluate(() => window.__wakeLocks)) >= 1 && (await panel()).includes("screen   kept on"), "the screen is kept on");
 
 await page.keyboard.press("g");
