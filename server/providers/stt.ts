@@ -24,13 +24,17 @@ const RETRY_AS = ["en", "tl"];
 type Heard = { text: string; language: string; confidence: number };
 
 const usage = { day: "", requests: 0, lastError: "" };
+// A hung request must not leave a child waiting: 6 s per try, and 8 s for all tries together. Groq
+// usually answers in well under a second.
+const TRY_MS = 6_000;
+const TOTAL_MS = 8_000;
 
 export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortSignal, apiKey = firstGroqKey(), language = LANGUAGE): Promise<Heard> {
   if (!apiKey) throw new Error("GROQ_API_KEY is not set");
   const client = new OpenAI({ apiKey, baseURL: GROQ_BASE_URL, maxRetries: 0 });
   const result = await client.audio.transcriptions.create(
     { file: await toFile(wav, "clip.wav", { type: "audio/wav" }), model, temperature: 0, response_format: "verbose_json", prompt: WHISPER_PROMPT, language },
-    { signal: signal ?? AbortSignal.timeout(10_000) },
+    { signal: signal ?? AbortSignal.timeout(TRY_MS) },
   );
   const day = new Date().toISOString().slice(0, 10);
   if (usage.day !== day) Object.assign(usage, { day, requests: 0 });
@@ -50,8 +54,8 @@ export async function transcribeGroq(wav: Buffer, model: string, signal?: AbortS
 
 // Hears a clip again as English and as Tagalog, and keeps the one Whisper is surer of. Nothing ("")
 // when neither works out: better a "say that again" than an answer to words in another language.
-async function hearAsEnglishOrTagalog(wav: Buffer, model: string, apiKey: string, heardAs: string): Promise<string> {
-  const tries = await Promise.allSettled(RETRY_AS.map((l) => transcribeGroq(wav, model, undefined, apiKey, l)));
+async function hearAsEnglishOrTagalog(wav: Buffer, model: string, apiKey: string, heardAs: string, ms: number): Promise<string> {
+  const tries = await Promise.allSettled(RETRY_AS.map((l) => transcribeGroq(wav, model, AbortSignal.timeout(ms), apiKey, l)));
   const best = tries
     .flatMap((t, i) => (t.status === "fulfilled" && t.value.text ? [{ ...t.value, as: RETRY_AS[i] }] : []))
     .sort((a, b) => b.confidence - a.confidence)[0];
@@ -64,16 +68,20 @@ async function hearAsEnglishOrTagalog(wav: Buffer, model: string, apiKey: string
 // (a retired model, say) moves on to the next model.
 export async function transcribe(wav: Buffer, models: readonly string[]): Promise<{ text: string; model: string }> {
   let lastError: unknown = new Error("No speech-to-text model is set");
+  const deadline = Date.now() + TOTAL_MS;
+  const timeLeft = () => Math.min(TRY_MS, deadline - Date.now());
   for (const model of models) {
     const use = `stt:${model}`;
     const keys = keysFor(use);
     if (!keys.length && restingFor(use)) lastError = new Error(`${model}: every key is resting (${restingFor(use)} s)`);
     for (const { key, index } of keys) {
+      if (timeLeft() < 500) throw new Error(`no answer within ${TOTAL_MS / 1000} s (${(lastError as Error).message})`);
       try {
-        const heard = await transcribeGroq(wav, model, undefined, key);
+        const heard = await transcribeGroq(wav, model, AbortSignal.timeout(timeLeft()), key);
         usage.lastError = "";
         if (LANGUAGE || !heard.text || !heard.language || ALLOWED.has(heard.language)) return { text: heard.text, model };
-        return { text: await hearAsEnglishOrTagalog(wav, model, key, heard.language), model: `${model}, heard again as English and Tagalog` };
+        const text = await hearAsEnglishOrTagalog(wav, model, key, heard.language, Math.max(1000, timeLeft()));
+        return { text, model: `${model}, heard again as English and Tagalog` };
       } catch (e) {
         lastError = e;
         noteRefusal(index, (e as Error).message);

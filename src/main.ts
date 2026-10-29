@@ -45,6 +45,7 @@ const CUES = {
   },
 } satisfies Record<string, { mood: Mood; effect: Effect; note: string; lines: string[] }>;
 const lastCue: Partial<Record<keyof typeof CUES, string>> = {};
+const FOGGY = "Oops, my glass is foggy! Say that again?"; // when hearing fails
 // Each face has a tone of voice: Groq's Orpheus takes a short direction in brackets, like
 // "[cheerful] Hello!" (docs, checked 2026-10: "[cheerful]", "[whisper]", "[excited]"; each direction
 // makes it more acted, so a reply gets one only where its tone changes, see tts.worker.ts).
@@ -306,7 +307,12 @@ async function respond(v: number) {
 
 // Writes down what was said: the text, and the line for the D panel. Throws when hearing fails.
 async function hear(audio: Float32Array): Promise<{ text: string; line: string }> {
-  const res = await fetch("/api/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: utils.encodeWAV(audio, 1, 16000, 1, 16) });
+  const res = await fetch("/api/stt", {
+    method: "POST",
+    headers: { "Content-Type": "audio/wav" },
+    body: utils.encodeWAV(audio, 1, 16000, 1, 16),
+    signal: AbortSignal.timeout(10_000), // the server gives up after 8 s; this is in case it hangs
+  });
   const body = (await res.json()) as { text?: string; ms?: number; provider?: string; error?: string };
   if (!res.ok) throw new Error(body.error);
   return { text: body.text ?? "", line: `${body.provider} · ${body.ms} ms` };
@@ -344,6 +350,7 @@ async function onUtterance(audio: Float32Array) {
   transcribing = true;
   let text = "";
   let sttLine = "";
+  let failed = false;
   try {
     ({ text, line: sttLine } = await hear(audio));
     step("hearing");
@@ -351,6 +358,7 @@ async function onUtterance(audio: Float32Array) {
   } catch (e) {
     console.warn("[stt]", e);
     operator.set("stt", `failed: ${(e as Error).message}`);
+    failed = true;
   }
   transcribing = false;
   if (v !== visit) return;
@@ -359,8 +367,10 @@ async function onUtterance(audio: Float32Array) {
   held = { visit: v, text: "", holds: 0 };
   if (!text) {
     // Noise, or nothing understood: keep listening without a word, or answer what was said before.
+    // When hearing failed, the child did say something: ask them to say it again.
     latencyStart = 0;
     if (before) await answer(v, before);
+    else if (failed) await askAgain(v);
     else await listen(v);
     return;
   }
@@ -390,6 +400,15 @@ async function finishHeld(v: number) {
   void listener.pause();
   startLatency("the wait for more ended");
   await answer(v, text);
+}
+
+// Hearing failed (Groq did not answer in time): say so, rather than leave the child in silence.
+async function askAgain(v: number) {
+  state.set("SPEAKING");
+  speaker.say(FOGGY, MOOD_VOICE.surprised, () => face.setMood("surprised"));
+  await speaker.finish();
+  if (v !== visit) return;
+  await listen(v);
 }
 
 async function answer(v: number, text: string) {
