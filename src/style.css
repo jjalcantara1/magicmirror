@@ -57,3 +57,21 @@ body {
   font: italic 15px Georgia, serif;
   opacity: 0.5;
 }
+
+/* While the mirror sleeps: the words that wake it, glowing gold in the glass. */
+#hint {
+  position: fixed;
+  bottom: 9vh;
+  width: 100%;
+  text-align: center;
+  font: italic 600 clamp(28px, 5vw, 64px) Georgia, "Times New Roman", serif;
+  color: #f2c75c;
+  text-shadow: 0 0 18px rgb(242 199 92 / 0.8), 0 0 42px rgb(255 170 40 / 0.45);
+  animation: hint-glow 4s ease-in-out infinite;
+  pointer-events: none;
+}
+#hint[hidden] { display: none; }
+@keyframes hint-glow {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.9; }
+}

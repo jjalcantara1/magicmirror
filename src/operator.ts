@@ -11,7 +11,7 @@ export function createOperator(handlers: Handlers) {
   const panel = document.querySelector<HTMLPreElement>("#debug")!;
   const alertDot = document.querySelector<HTMLDivElement>("#alert")!;
   const fields = new Map<string, string>([
-    ["keys", "G wake · N new visitor · C treat · H happy halloween · R sleep · X restart · V next voice · D this panel"],
+    ["keys", "G wake (or say \"hello mirror\") · N new visitor · C treat · H happy halloween · R sleep · X restart · V next voice · D this panel"],
   ]);
   let transcript: string[] = [];
   let status = "";

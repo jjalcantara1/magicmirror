@@ -99,6 +99,14 @@ app.get("/api/config", async (_req, res) => {
       echo: Number(process.env.VOICE_ECHO || 0.3), // the echo is shaped to stay off the words (speak.ts)
       bass: Number(process.env.VOICE_BASS || 0.2),
     },
+    wake: {
+      // "Hello mirror" wakes the sleeping mirror; off = only the G key does.
+      words: process.env.WAKE_WORDS !== "off",
+      // "Say "Hello, Mirror!"" glows in the glass while it sleeps.
+      hint: process.env.WAKE_HINT !== "off",
+      // After this many seconds with no child to answer, it says goodbye and sleeps; 0 = never.
+      idleSleepS: Number(process.env.IDLE_SLEEP_S ?? 30),
+    },
     vad: {
       positive: Number(process.env.VAD_POSITIVE_THRESHOLD || 0.5),
       negative: Number(process.env.VAD_NEGATIVE_THRESHOLD || 0.35),
