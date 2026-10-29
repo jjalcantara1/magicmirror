@@ -71,7 +71,7 @@ export async function speakGroq(text: string, voice: string, model: string): Pro
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, voice, input: text, response_format: "wav" }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000), // then the next key, or the local voice in the browser
     });
     countToday("requests");
     if (res.ok) {

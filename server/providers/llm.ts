@@ -168,11 +168,16 @@ export async function chatWithFallback(
 ): Promise<StreamStats & { target: string }> {
   const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, ...turns];
   let lastError: unknown = new Error("No chat provider is available");
+  // A hung model must not leave a child waiting: 6 s each (a whole reply usually streams in under
+  // 2 s), then the next one, and 14 s for all of them, after which the mirror says "Oops".
+  const deadline = Date.now() + 14_000;
   for (const target of chatTargets()) {
     const h = healthOf(label(target));
     if (!usable(target, h)) continue;
+    const timeLeft = deadline - Date.now();
+    if (timeLeft < 1000) break;
     let started = false;
-    const timeout = AbortSignal.timeout(target.provider === "groq" ? 10_000 : 30_000);
+    const timeout = AbortSignal.timeout(Math.min(timeLeft, target.provider === "groq" ? 6_000 : 30_000));
     try {
       const stats = await streamChat(target, messages, (d) => ((started = true), onDelta(d)), AbortSignal.any([signal, timeout]));
       h.requests++;
