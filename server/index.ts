@@ -116,7 +116,10 @@ app.get("/api/config", async (_req, res) => {
       // Silence that ends a sentence. Short, so the mirror answers quickly; a child who stops mid-thought
       // ("I'm a...") is still waited for (THINK_MS in main.ts).
       redemptionMs: Number(process.env.VAD_REDEMPTION_MS || 600),
-      nearDb: Number(process.env.MIC_NEAR_DB || 7),
+      // Children talk straight into the mic (MIC_CLOSE=on): they stand far above the room, so the bar
+      // is higher (12 dB), which keeps a loud crowd out. MIC_CLOSE=off: a room mic, 7 dB.
+      nearDb: Number(process.env.MIC_NEAR_DB || (process.env.MIC_CLOSE === "off" ? 7 : 12)),
+      closeTalk: process.env.MIC_CLOSE !== "off",
       listenAfterMs: Number(process.env.LISTEN_AFTER_MS || 600), // was 900 ms; children answer fast
     },
   });
