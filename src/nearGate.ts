@@ -27,6 +27,10 @@ export function createNearGate(nearDb: number) {
       room.push(level);
       if (room.length > ROOM_FRAMES) room.shift();
     },
+    /** The room's level (its quieter moments), once 2 s have been measured. */
+    room(): number | undefined {
+      return room.length < MIN_ROOM_FRAMES ? undefined : percentile(room, 20);
+    },
     /** How far the utterance stands above the room, and whether it is near enough to answer. */
     judge(audio: Float32Array): { aboveDb?: number; near: boolean } {
       if (room.length < MIN_ROOM_FRAMES) return { near: true };

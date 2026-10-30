@@ -14,11 +14,16 @@
 4. **Windows:**
    - **Power:** under Settings, System, Power, set "screen" and "sleep" to **Never** when plugged in, and plug the charger in.
    - **Sound output:** the speaker, at a good volume.
-   - **Sound input:** the microphone nearest the mirror. The mirror uses the Windows default microphone.
+   - **Sound input:** the microphone the children talk into. The mirror uses the Windows default microphone. Under its Properties, set the level to about 70 and turn any "microphone boost" off. A child shouting into it should not max out the mic meter in the D panel.
    - **Notifications:** turn on **Do not disturb**, so no pop-ups show through the glass.
 5. **Test run:** double-click **`start-mirror.bat`**.
    - The first time, Chrome asks to use the microphone. Click **Allow**; it remembers.
    - The black "Magic Mirror server" window should end with `[check] all good: the mirror is ready for the party`.
+6. **Mic check, ideally with the room as loud as it will get:**
+   - Press D, then say something straight into the mic.
+   - The `heard` line should show about **15 dB or more** above the room.
+   - Chatter from across the room should show `IGNORED` at well under 12 dB.
+   - The server window shows the same lines.
 
 ## At the party
 
@@ -61,7 +66,8 @@ Change them in `.env`, then close both windows and double-click `start-mirror.ba
 
 | Setting | Default | Change it when |
 |---|---|---|
-| `MIC_NEAR_DB` | 7 | It ignores children: lower it (5). It answers people across the room: raise it (9–10). |
+| `MIC_NEAR_DB` | 12 | How much louder than the room a voice must be. It ignores children at the mic: lower it (9–10). It answers the crowd: raise it (15). |
+| `MIC_CLOSE` | on | Children talk straight into the mic: no automatic mic volume, and a sentence ends when the child stops even in a loud crowd. `off` for a mic further away (then `MIC_NEAR_DB` defaults to 7). |
 | `VAD_REDEMPTION_MS` | 600 | It cuts children off mid-sentence: raise it (700–800). |
 | `LISTEN_AFTER_MS` | 600 | It answers its own echo: raise it (800–900). It misses quick answers: lower it. |
 | `IDLE_SLEEP_S` | 30 | It sleeps too soon or too late. 0 = never sleeps by itself. |
@@ -77,7 +83,9 @@ Change them in `.env`, then close both windows and double-click `start-mirror.ba
 | Problem | Fix |
 |---|---|
 | No sound | Press any key on the mirror. Check the Windows volume and output. |
-| It doesn't hear anyone | In the D panel, `heard` should change when someone speaks. If not, check the Windows default microphone. If it says `IGNORED`, lower `MIC_NEAR_DB`. |
+| It doesn't hear anyone | In the D panel, `heard` should change when someone speaks. If not, check the Windows default microphone. If it says `IGNORED` for a child at the mic, lower `MIC_NEAR_DB`. |
+| It gets loud and the mirror answers the crowd | Raise `MIC_NEAR_DB` (15). Ask children to talk right into the mic. |
+| A child's voice sounds distorted | Lower the Windows mic level, or turn its boost off. |
 | It talks to itself | Turn the volume down a little, or raise `LISTEN_AFTER_MS`. |
 | A `[check]` line says FAILED | The line says what failed: usually the Groq key, the internet, or the Groq spend limit. |
 | Stuck, or the face froze | Press X. If that doesn't help, close both windows and start again. |

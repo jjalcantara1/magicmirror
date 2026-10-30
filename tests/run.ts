@@ -75,6 +75,7 @@ const groups: { env: Record<string, string>; tests: [string, ...string[]][] }[] 
   { env: { REACTIONS: "off", VOICE_ACTING: "off" }, tests: [["acting", "off"]] },
   { env: { REACTIONS: "off", IDLE_SLEEP_S: "4" }, tests: [["wake"]] },
   { env: {}, tests: [["react"]] },
+  { env: { REACTIONS: "off" }, tests: [["loud"]] },
 ];
 const playwright = await import("playwright").catch(() => {
   try {
