@@ -5,7 +5,7 @@ A talking magic mirror for a family Halloween party. A laptop hidden behind a tw
 <p align="center">
   <img src="docs/demo.webp" alt="The Magic Mirror waking up when a child says “Hello, Mirror!”, answering questions with an animated mask face, giving out a treat, then falling back asleep" width="800">
 </p>
-<p align="center"><sub>One visit, recorded from the running app (66 s). The children's voices, the AI and the cloud voice are simulated with scripted lines, so the recording can be reproduced exactly. Captions show what is said, because the video has no sound. <a href="docs/demo.mp4">Full-quality MP4</a> · <a href="docs/demo.gif">24 s GIF</a></sub></p>
+<p align="center"><sub>One visit, recorded from the running app (about a minute). The children's voices, the AI and the cloud voice are simulated with scripted lines, so the recording can be reproduced exactly. Captions show what is said, because the video has no sound. <a href="docs/demo.mp4">Full-quality HD MP4 (1600×900)</a> · <a href="docs/demo.gif">18 s GIF</a></sub></p>
 
 > *"Mirror, mirror, on the wall, who is the fairest of them all?"*
 
@@ -18,8 +18,8 @@ The goal was a character that feels alive. Like Disney's *Turtle Talk with Crush
 ## What it does
 
 <p align="center">
-  <img src="docs/mirror-asleep.png" alt="The mirror asleep, with “Say ‘Hello, Mirror!’” glowing in gold" width="49%">
-  <img src="docs/mirror-speaking.png" alt="The mirror awake and speaking, with captions" width="49%">
+  <img src="docs/mirror-asleep.jpg" alt="The mirror asleep, with “Say ‘Hello, Mirror!’” glowing in gold" width="49%">
+  <img src="docs/mirror-speaking.jpg" alt="The mirror winking as it turns “What's nine times eight?” back to Halloween" width="49%">
 </p>
 
 - **Wakes when a child says "Hello, Mirror!"** The words glow in gold while it sleeps. It greets every child with the classic line, and goes back to sleep (forgetting that child) after 30 seconds of quiet.
